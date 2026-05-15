@@ -14,11 +14,7 @@ define('APP_NAME', 'SENA - Seguimiento de Aprendices');
 define('APP_VERSION', '1.0.0');
 define('SESSION_TIMEOUT', 3600); // 1 hora
 
-// ============================================================
-// URL BASE DINÁMICA
-// Funciona correctamente en localhost y Railway
-// ============================================================
-
+// ── URL base dinámica — funciona en localhost, XAMPP y cualquier servidor ──
 if (!defined('BASE_URL')) {
 
     $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
@@ -27,12 +23,21 @@ if (!defined('BASE_URL')) {
 
     $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
 
-    define('BASE_URL', $scheme . '://' . $host);
-}
+    // Ruta absoluta del proyecto
+    $projectRoot = realpath(__DIR__ . '/..');
 
-// ============================================================
-// CONEXIÓN PDO
-// ============================================================
+    // Ruta raíz pública del servidor
+    $docRoot = realpath($_SERVER['DOCUMENT_ROOT']);
+
+    // Obtener ruta relativa
+    $relativePath = str_replace(
+        '\\',
+        '/',
+        substr($projectRoot, strlen($docRoot))
+    );
+
+    define('BASE_URL', $scheme . '://' . $host . $relativePath);
+}
 
 function getDB(): PDO {
 
