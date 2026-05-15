@@ -1,0 +1,8 @@
+administrador - user:admin
+		contra: password
+
+instructor-    user:1053784000
+		contra:123456
+
+gestor         user: Cloaiza
+               contra:gestor123 
