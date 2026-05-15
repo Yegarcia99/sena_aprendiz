@@ -145,7 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </form>
 
         <div class="login-footer">
-            SENA &bull; Centro de Comercio y Servicios &bull; <?= date('Y') ?>
+            SENA &bull; Regional Caldas &bull; <?= date('Y') ?>
         </div>
     </div>
 </div>
