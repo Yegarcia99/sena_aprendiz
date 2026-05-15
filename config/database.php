@@ -4,10 +4,10 @@
 // Archivo: config/database.php
 // ============================================================
 
-define('DB_HOST', 'localhost');
-define('DB_USER', 'root');         // Cambiar según tu servidor
-define('DB_PASS', '');             // Cambiar según tu servidor
-define('DB_NAME', 'sena_aprendices');
+define('DB_HOST', getenv('MYSQLHOST') ?: 'localhost');
+define('DB_USER', getenv('MYSQLUSER') ?: 'root');
+define('DB_PASS', getenv('MYSQLPASSWORD') ?: '');
+define('DB_NAME', getenv('MYSQLDATABASE') ?: 'sena_aprendices');
 define('DB_CHARSET', 'utf8mb4');
 
 define('APP_NAME', 'SENA - Seguimiento de Aprendices');
