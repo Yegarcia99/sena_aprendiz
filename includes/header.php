@@ -122,6 +122,12 @@ if ($currentPage !== 'perfil') {
             <span class="nav-icon">🔐</span>
             <span>Mi Perfil</span>
         </a>
+        <?php if (hasRole(['Administrador'])): ?>
+        <a href="<?= BASE_URL ?>/pages/gestion_usuarios.php" class="nav-item <?= $currentPage === 'gestion_usuarios' ? 'active' : '' ?>">
+            <span class="nav-icon">👥</span>
+            <span>Gestión de Usuarios</span>
+        </a>
+        <?php endif; ?>
     </nav>
 
     <div class="sidebar-footer">
@@ -140,7 +146,7 @@ if ($currentPage !== 'perfil') {
 <!-- MAIN CONTENT -->
 <main class="main-content">
     <div class="topbar">
-        <button class="sidebar-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+        <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
         <div class="topbar-title"><?= $pageTitle ?? APP_NAME ?></div>
         <div class="topbar-right">
             <span class="badge-fecha"><?= date('d/m/Y H:i') ?></span>
@@ -210,6 +216,23 @@ if ($currentPage !== 'perfil') {
     </div>
     <div class="content-area">
 <script>
+
+function toggleSidebar() {
+    const s = document.getElementById('sidebar');
+    s.classList.toggle('open');
+    document.body.classList.toggle('sidebar-open', s.classList.contains('open'));
+}
+// Cerrar sidebar al hacer click en el overlay (movil)
+document.addEventListener('click', function(e) {
+    const sidebar = document.getElementById('sidebar');
+    const toggle = document.querySelector('.sidebar-toggle');
+    if (sidebar && sidebar.classList.contains('open') && window.innerWidth <= 768) {
+        if (!sidebar.contains(e.target) && toggle && !toggle.contains(e.target)) {
+            sidebar.classList.remove('open');
+            document.body.classList.remove('sidebar-open');
+        }
+    }
+});
 function toggleCampanita() {
     const p = document.getElementById('panelCampanita');
     p.style.display = p.style.display === 'none' ? 'block' : 'none';

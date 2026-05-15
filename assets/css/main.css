@@ -305,14 +305,31 @@ svg.barcode { width: 100%; height: auto; }
 /* ── RESPONSIVE ──────────────────────────────────────────── */
 @media (max-width: 900px) { .dashboard-grid { grid-template-columns: 1fr !important; } }
 @media (max-width: 768px) {
-    .sidebar { transform: translateX(-100%); }
-    .sidebar.open { transform: translateX(0); }
+    .sidebar { transform: translateX(-100%); position: fixed; z-index: 200; height: 100vh; overflow-y: auto; }
+    .sidebar.open { transform: translateX(0); box-shadow: 4px 0 24px rgba(0,0,0,.18); }
     .main-content { margin-left: 0; }
     .sidebar-toggle { display: block; }
-    .content-area { padding: 16px; }
+    .content-area { padding: 12px; }
     .form-grid { grid-template-columns: 1fr; }
-    .stats-grid { grid-template-columns: repeat(2,1fr); }
-    .page-header { flex-direction: column; align-items: flex-start; }
+    .stats-grid { grid-template-columns: repeat(2,1fr); gap: 10px; }
+    .page-header { flex-direction: column; align-items: flex-start; gap: 10px; padding: 14px; }
+    .page-title { font-size: 20px !important; }
+    .page-subtitle { font-size: 12px !important; }
+    .table-card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { min-width: 520px; }
+    .topbar { padding: 10px 12px; gap: 8px; }
+    .topbar-title { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+    .badge-fecha { display: none; }
+    #panelCampanita { width: calc(100vw - 20px) !important; right: -55px !important; }
+    .quick-actions { grid-template-columns: 1fr !important; gap: 8px; }
+    .stat-value { font-size: 26px !important; }
+    .hero-panel { padding: 14px; }
+    .hero-panel-title { font-size: 17px; }
+    .case-shell { grid-template-columns: 1fr !important; }
+    .case-nav { position: static !important; }
+    #modalPass { align-items: flex-end !important; }
+    #modalPass > div { margin: 0 !important; border-radius: 14px 14px 0 0 !important; max-width: 100% !important; width: 100% !important; }
+    body.sidebar-open::after { content: ''; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 199; }
 }
 
 /* ── PRODUCT POLISH 2026 ─────────────────────────────────── */
