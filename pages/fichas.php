@@ -54,6 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_ficha'])) {
 
 $action = $_GET['action'] ?? 'list'; $id = (int)($_GET['id'] ?? 0);
 if ($action === 'delete' && $id) {
+    verifyCsrf();
     try {
         $db->beginTransaction();
         // Verificar que no tenga aprendices activos

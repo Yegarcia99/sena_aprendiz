@@ -13,6 +13,7 @@ $id              = (int)($_GET['id'] ?? 0);
 $pendienteFilter = (int)($_GET['pendiente_id'] ?? 0);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verifyCsrf();
     $data = [
         'pendiente_id'       => (int)($_POST['pendiente_id'] ?? 0),
         'instructor_id'      => (int)($_POST['instructor_id'] ?? 0),
@@ -89,6 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 if ($action === 'delete' && $id) {
+    verifyCsrf();
     try {
         $db->prepare("DELETE FROM acciones_remediales WHERE id=?")->execute([$id]);
         $msg = 'Acción remedial eliminada correctamente.';

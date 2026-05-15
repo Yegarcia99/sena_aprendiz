@@ -1,0 +1,37 @@
+# Credenciales y configuracion local
+administrador - useradmin.txt
+*.env
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+logs/
+
+# Uploads y archivos temporales
+uploads/
+tmp/
+temp/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# PHP
+*.cache
+vendor/
+composer.lock
+
+# Backups
+*.sql.bak
+*.bak
+*.backup
+*~

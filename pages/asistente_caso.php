@@ -23,6 +23,7 @@ function firstUploadedFile(string $field): ?array {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verifyCsrf();
     try {
         $db->beginTransaction();
 

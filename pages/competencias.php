@@ -12,6 +12,7 @@ $search         = trim($_GET['q'] ?? '');
 
 // ── GUARDAR RESULTADO ─────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_res'])) {
+    verifyCsrf();
     $rid    = (int)($_POST['rid']       ?? 0);
     $compId = (int)($_POST['comp_id']   ?? 0);
     $nombre = trim($_POST['nombre_res'] ?? '');
@@ -42,6 +43,7 @@ if (isset($_GET['del_res'])) {
 
 // ── GUARDAR / ELIMINAR COMPETENCIA ───────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['_res'])) {
+    verifyCsrf();
     $accion = $_POST['_accion'] ?? 'guardar';
     $cid    = (int)($_POST['comp_id'] ?? 0);
 

@@ -14,6 +14,7 @@ $aprendizId = (int)($_GET['aprendiz_id'] ?? $_POST['aprendiz_id'] ?? 0);
 $pendienteId = (int)($_GET['pendiente_id'] ?? $_POST['pendiente_id'] ?? 0);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verifyCsrf();
     try {
         $form = $_POST['form'] ?? '';
         if ($form === 'plan') {

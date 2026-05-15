@@ -14,6 +14,7 @@ $aprendizFilter = (int)($_GET['aprendiz_id'] ?? 0);
 
 // ── GUARDAR ──────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verifyCsrf();
     $resultadosSeleccionados = array_map('intval', $_POST['resultado_ids'] ?? []);
     $data = [
         'aprendiz_id'           => (int)($_POST['aprendiz_id'] ?? 0),
@@ -47,6 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // ── ELIMINAR ─────────────────────────────────────────────────
 if ($action === 'delete' && $id) {
+    verifyCsrf();
     try {
         $db->beginTransaction();
         // Eliminar dependencias antes de eliminar el pendiente

@@ -11,6 +11,7 @@ $action = $_GET['action'] ?? 'list';
 $id = (int)($_GET['id'] ?? 0);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verifyCsrf();
     $data = [
         'nombres'   => trim($_POST['nombres'] ?? ''),
         'apellidos' => trim($_POST['apellidos'] ?? ''),
@@ -67,6 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 if ($action === 'delete' && $id) {
+    verifyCsrf();
     try {
         $db->beginTransaction();
         // Obtener usuario vinculado

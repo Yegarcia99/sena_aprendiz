@@ -22,6 +22,7 @@ if ($currentPage !== 'perfil') {
 <html lang="es">
 <head>
     <meta charset="UTF-8">
+    <meta name="csrf-token" content="<?= csrfToken() ?>">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= APP_NAME ?></title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -139,7 +140,10 @@ if ($currentPage !== 'perfil') {
             </div>
         </div>
         <a href="<?= BASE_URL ?>/pages/perfil.php" style="font-size:11px;color:var(--verde);text-decoration:none;display:block;margin-bottom:4px">🔐 Mi Perfil</a>
-        <a href="<?= BASE_URL ?>/logout.php" class="logout-btn">Salir</a>
+        <form method="POST" action="<?= BASE_URL ?>/logout.php" style="margin:0">
+            <?= csrfField() ?>
+            <button type="submit" class="logout-btn" style="cursor:pointer;width:100%">Salir</button>
+        </form>
     </div>
 </aside>
 

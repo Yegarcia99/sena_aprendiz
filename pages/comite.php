@@ -14,6 +14,7 @@ $aprendizPreselect = (int)($_GET['aprendiz_id'] ?? 0);
 
 // ── GUARDAR ──────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verifyCsrf();
     $data = [
         'aprendiz_id'        => (int)($_POST['aprendiz_id'] ?? 0),
         'fecha_remision'     => $_POST['fecha_remision'] ?? date('Y-m-d'),
@@ -78,6 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 if ($action === 'delete' && $id) {
+    verifyCsrf();
     try {
         $db->prepare("DELETE FROM comite_aprendices WHERE id=?")->execute([$id]);
         $msg = 'Registro de comité eliminado correctamente.';

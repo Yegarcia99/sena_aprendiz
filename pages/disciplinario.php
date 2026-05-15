@@ -30,6 +30,7 @@ $tab = $_GET['tab'] ?? 'hechos'; // hechos | atenciones | seguimiento
 // POST — Guardar hecho
 // ════════════════════════════════════════════════════════════
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$soloLectura) {
+    verifyCsrf();
     $form = $_POST['form'] ?? '';
 
     // ── HECHO ────────────────────────────────────────────────

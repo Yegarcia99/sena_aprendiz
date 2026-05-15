@@ -15,6 +15,7 @@ $row = $stmt->fetch();
 $debeCambiar = ($row['debe_cambiar_pass'] ?? 0) == 1;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verifyCsrf();
     $actual   = $_POST['pass_actual'] ?? '';
     $nueva    = $_POST['pass_nueva'] ?? '';
     $confirma = $_POST['pass_confirma'] ?? '';
