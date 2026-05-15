@@ -1,5 +1,5 @@
 // sw.js — Service Worker SENA App
-const CACHE = 'sena-v1';
+const CACHE_NAME = 'sena-cache-v2';
 const OFFLINE_URL = '/sena_aprendices/index.php';
 
 // Recursos a cachear para uso offline
