@@ -17,9 +17,13 @@ define('SESSION_TIMEOUT', 3600); // 1 hora
 // ── URL base dinámica — funciona en localhost, XAMPP y cualquier servidor ──
 if (!defined('BASE_URL')) {
 
-    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-        ? 'https'
-        : 'http';
+    // Detectar HTTPS correctamente detrás de proxies (Railway, Heroku, Nginx, etc.)
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https'
+        || ($_SERVER['HTTP_X_FORWARDED_SSL']   ?? '') === 'on'
+        || ($_SERVER['SERVER_PORT']            ?? '') === '443';
+
+    $scheme = $isHttps ? 'https' : 'http';
 
     $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
 
@@ -27,14 +31,14 @@ if (!defined('BASE_URL')) {
     $projectRoot = realpath(__DIR__ . '/..');
 
     // Ruta raíz pública del servidor
-    $docRoot = realpath($_SERVER['DOCUMENT_ROOT']);
+    $docRoot = realpath($_SERVER['DOCUMENT_ROOT'] ?? '');
 
-    // Obtener ruta relativa
-    $relativePath = str_replace(
-        '\\',
-        '/',
-        substr($projectRoot, strlen($docRoot))
-    );
+    // Ruta relativa (vacía si el proyecto ES la raíz, como en Railway/Docker)
+    if ($docRoot && $projectRoot && str_starts_with($projectRoot, $docRoot)) {
+        $relativePath = str_replace('\\', '/', substr($projectRoot, strlen($docRoot)));
+    } else {
+        $relativePath = '';
+    }
 
     define('BASE_URL', $scheme . '://' . $host . $relativePath);
 }
