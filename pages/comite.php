@@ -4,6 +4,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/expediente_schema.php';
 require_once __DIR__ . '/../includes/notificaciones.php';
 requireLogin();
+denyIfInstructorOrAprendiz(); // Instructor y Aprendiz no acceden a comité
 $pageTitle = 'Comité Académico';
 $db  = getDB();
 ensureExpedienteSchema($db);

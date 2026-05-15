@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/expediente_schema.php';
 requireLogin();
+denyIfInstructorOrAprendiz(); // Solo Gestor, Coordinador, Administrador
 
 $pageTitle = 'Asistente de Caso';
 $db = getDB();

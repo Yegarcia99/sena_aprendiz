@@ -10,8 +10,24 @@ ensureExpedienteSchema($db);
 
 $msg = $err = '';
 $user = getCurrentUser();
-$aprendizId = (int)($_GET['aprendiz_id'] ?? $_POST['aprendiz_id'] ?? 0);
+$aprendizId  = (int)($_GET['aprendiz_id'] ?? $_POST['aprendiz_id'] ?? 0);
 $pendienteId = (int)($_GET['pendiente_id'] ?? $_POST['pendiente_id'] ?? 0);
+
+// Aprendiz: solo puede ver su propio expediente, sin escribir
+if (isAprendiz()) {
+    $miAprendizId = getAprendizId($db);
+    if (!$miAprendizId) {
+        header('Location: ' . BASE_URL . '/pages/perfil.php');
+        exit;
+    }
+    // Forzar que solo vea su propio expediente
+    $aprendizId = $miAprendizId;
+    // Bloquear POST (no puede modificar nada)
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        http_response_code(403);
+        die('No tiene permisos para modificar el expediente.');
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrf();

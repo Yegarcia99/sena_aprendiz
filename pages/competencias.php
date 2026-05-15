@@ -2,6 +2,11 @@
 // pages/competencias.php - Competencias y Resultados de Aprendizaje
 require_once __DIR__ . '/../includes/auth.php';
 requireLogin();
+// Solo Coordinador/Administrador accede; Instructor y Aprendiz bloqueados
+if (!isCoordinadorOrUp()) {
+    header('Location: ' . BASE_URL . '/pages/dashboard.php');
+    exit;
+}
 $pageTitle = 'Competencias';
 $db  = getDB();
 $msg = $err = '';

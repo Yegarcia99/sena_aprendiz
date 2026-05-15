@@ -150,13 +150,45 @@ function sanitize(string $val): string {
 
 // ── CONTROL DE ACCESO POR FICHA ───────────────────────────────
 
+// ── HELPERS DE ROL ───────────────────────────────────────────
+
+function isAprendiz(): bool {
+    return ($_SESSION['user']['rol'] ?? '') === 'Aprendiz';
+}
+
+function isInstructor(): bool {
+    return ($_SESSION['user']['rol'] ?? '') === 'Instructor';
+}
+
+function isGestor(): bool {
+    return ($_SESSION['user']['rol'] ?? '') === 'Gestor';
+}
+
+function isCoordinadorOrUp(): bool {
+    return in_array($_SESSION['user']['rol'] ?? '', ['Coordinador', 'Administrador']);
+}
+
+function denyIfAprendiz(): void {
+    if (isAprendiz()) {
+        header('Location: ' . BASE_URL . '/pages/dashboard.php');
+        exit;
+    }
+}
+
+function denyIfInstructorOrAprendiz(): void {
+    if (isAprendiz() || isInstructor()) {
+        header('Location: ' . BASE_URL . '/pages/dashboard.php');
+        exit;
+    }
+}
+
 function getFichasPermitidas(PDO $db): array {
     $user = getCurrentUser();
     $rol  = $user['rol'] ?? '';
     if (in_array($rol, ['Administrador', 'Coordinador'])) {
         return []; // Sin restricción
     }
-    $userId = $user['id'] ?? 0;
+    $userId = (int)($user['id'] ?? 0);
     if ($rol === 'Gestor') {
         $stmt = $db->prepare("SELECT id FROM fichas WHERE gestor_id = ?");
         $stmt->execute([$userId]);
@@ -172,7 +204,23 @@ function getFichasPermitidas(PDO $db): array {
         $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
         return $ids ?: [-1];
     }
+    if ($rol === 'Aprendiz') {
+        // El aprendiz solo ve su propia ficha
+        $stmt = $db->prepare("SELECT ficha_id FROM aprendices WHERE usuario_id = ?");
+        $stmt->execute([$userId]);
+        $fichaId = $stmt->fetchColumn();
+        return $fichaId ? [$fichaId] : [-1];
+    }
     return [-1];
+}
+
+// Retorna el aprendiz_id vinculado al usuario actual (solo rol Aprendiz)
+function getAprendizId(PDO $db): int {
+    $user = getCurrentUser();
+    if (($user['rol'] ?? '') !== 'Aprendiz') return 0;
+    $stmt = $db->prepare("SELECT id FROM aprendices WHERE usuario_id = ?");
+    $stmt->execute([(int)($user['id'] ?? 0)]);
+    return (int)($stmt->fetchColumn() ?: 0);
 }
 
 function filtroFichas(PDO $db, string $alias = 'a'): array {

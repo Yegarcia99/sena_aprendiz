@@ -109,6 +109,7 @@ require_once __DIR__ . '/../includes/header.php';
                     'Coordinador'   => 'background:#e3f2fd;color:#0d47a1',
                     'Gestor'        => 'background:#fff8e1;color:#e65100',
                     'Instructor'    => 'background:#f3e5f5;color:#4a148c',
+                    'Aprendiz'      => 'background:#e0f7fa;color:#006064',
                 ];
                 $rc = $rolColors[$u['rol']] ?? 'background:#eee;color:#333';
                 ?>

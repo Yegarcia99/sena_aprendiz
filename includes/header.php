@@ -52,6 +52,14 @@ if ($currentPage !== 'perfil') {
         </div>
     </div>
 
+    <?php
+    $rolNav  = $user['rol'] ?? '';
+    $esAprendiz    = ($rolNav === 'Aprendiz');
+    $esInstructor  = ($rolNav === 'Instructor');
+    $esGestor      = ($rolNav === 'Gestor');
+    $esCoordOrUp   = in_array($rolNav, ['Coordinador', 'Administrador']);
+    $esAdmin       = ($rolNav === 'Administrador');
+    ?>
     <nav class="sidebar-nav">
         <div class="nav-section-title">Principal</div>
         <a href="<?= BASE_URL ?>/pages/dashboard.php" class="nav-item <?= $currentPage === 'dashboard' ? 'active' : '' ?>">
@@ -59,6 +67,7 @@ if ($currentPage !== 'perfil') {
             <span>Dashboard</span>
         </a>
 
+        <?php if (!$esAprendiz): ?>
         <div class="nav-section-title academico">🎓 Gestión Académica</div>
         <a href="<?= BASE_URL ?>/pages/aprendices.php" class="nav-item <?= $currentPage === 'aprendices' ? 'active' : '' ?>">
             <span class="nav-icon">◉</span>
@@ -68,6 +77,7 @@ if ($currentPage !== 'perfil') {
             <span class="nav-icon">◎</span>
             <span>Pendientes</span>
         </a>
+        <?php if (!$esInstructor): ?>
         <a href="<?= BASE_URL ?>/pages/asistente_caso.php" class="nav-item <?= $currentPage === 'asistente_caso' ? 'active' : '' ?>">
             <span class="nav-icon">▶</span>
             <span>Asistente de Caso</span>
@@ -76,15 +86,19 @@ if ($currentPage !== 'perfil') {
             <span class="nav-icon">◐</span>
             <span>Acciones Remediales</span>
         </a>
+        <?php endif; ?>
         <a href="<?= BASE_URL ?>/pages/expediente.php" class="nav-item <?= $currentPage === 'expediente' ? 'active' : '' ?>">
             <span class="nav-icon">▣</span>
             <span>Expediente</span>
         </a>
+        <?php if (!$esInstructor): ?>
         <a href="<?= BASE_URL ?>/pages/comite.php" class="nav-item <?= $currentPage === 'comite' ? 'active' : '' ?>">
             <span class="nav-icon">◑</span>
             <span>Comité</span>
         </a>
+        <?php endif; ?>
 
+        <?php if ($esCoordOrUp): ?>
         <div class="nav-section-title">Configuración</div>
         <a href="<?= BASE_URL ?>/pages/instructores.php" class="nav-item <?= $currentPage === 'instructores' ? 'active' : '' ?>">
             <span class="nav-icon">◇</span>
@@ -102,18 +116,23 @@ if ($currentPage !== 'perfil') {
             <span class="nav-icon">📊</span>
             <span>Analítica de Fichas</span>
         </a>
-        <?php if (hasRole(['Administrador','Coordinador'])): ?>
+        <?php endif; ?>
+        <?php if ($esCoordOrUp): ?>
         <a href="<?= BASE_URL ?>/pages/reportes.php" class="nav-item <?= $currentPage === 'reportes' ? 'active' : '' ?>">
             <span class="nav-icon">▣</span>
             <span>Reportes</span>
         </a>
         <?php endif; ?>
 
+        <?php if (!$esInstructor && !$esAprendiz): ?>
         <div class="nav-section-title disciplinario">⚠️ Disciplinario</div>
         <a href="<?= BASE_URL ?>/pages/disciplinario.php" class="nav-item <?= $currentPage === 'disciplinario' ? 'active' : '' ?>">
             <span class="nav-icon">⚠</span>
             <span>Seguimiento Disc.</span>
         </a>
+        <?php endif; ?>
+        <?php endif; // !esAprendiz ?>
+
         <div class="nav-section-title">Mi Cuenta</div>
         <a href="<?= BASE_URL ?>/pages/notificaciones.php" class="nav-item <?= $currentPage === 'notificaciones' ? 'active' : '' ?>">
             <span class="nav-icon">🔔</span>
@@ -123,7 +142,7 @@ if ($currentPage !== 'perfil') {
             <span class="nav-icon">🔐</span>
             <span>Mi Perfil</span>
         </a>
-        <?php if (hasRole(['Administrador'])): ?>
+        <?php if ($esAdmin): ?>
         <a href="<?= BASE_URL ?>/pages/gestion_usuarios.php" class="nav-item <?= $currentPage === 'gestion_usuarios' ? 'active' : '' ?>">
             <span class="nav-icon">👥</span>
             <span>Gestión de Usuarios</span>

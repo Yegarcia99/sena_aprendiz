@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/expediente_schema.php';
 requireLogin();
+denyIfAprendiz(); // Aprendiz no accede a acciones remediales
 $pageTitle = 'Acciones Remediales';
 $db  = getDB();
 ensureExpedienteSchema($db);
@@ -12,8 +13,14 @@ $action          = $_GET['action'] ?? 'list';
 $id              = (int)($_GET['id'] ?? 0);
 $pendienteFilter = (int)($_GET['pendiente_id'] ?? 0);
 
+// Instructor: solo lectura. Gestor y Coordinador/Admin: escritura.
+$puedeEscribir = !isInstructor();
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrf();
+    if (!$puedeEscribir) {
+        $err = 'No tiene permisos para registrar acciones remediales.';
+    } else {
     $data = [
         'pendiente_id'       => (int)($_POST['pendiente_id'] ?? 0),
         'instructor_id'      => (int)($_POST['instructor_id'] ?? 0),
@@ -87,10 +94,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $action = 'list';
     }
+    } // end else puedeEscribir
 }
 
 if ($action === 'delete' && $id) {
     verifyCsrf();
+    if (!$puedeEscribir) {
+        $err = 'No tiene permisos para eliminar acciones remediales.';
+        $action = 'list';
+    } else {
     try {
         $db->prepare("DELETE FROM acciones_remediales WHERE id=?")->execute([$id]);
         $msg = 'Acción remedial eliminada correctamente.';
@@ -98,6 +110,7 @@ if ($action === 'delete' && $id) {
         $err = 'Error al eliminar la acción: ' . $e->getMessage();
     }
     $action = 'list';
+    }
 }
 
 $ffSql = !empty($ff['params']) ? ' AND ' . $ff['sql'] : '';
@@ -143,7 +156,9 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
         <a href="<?= BASE_URL ?>/ajax/exportar_excel.php?tipo=acciones" class="btn btn-excel">↓ Exportar Excel</a>
+        <?php if ($puedeEscribir): ?>
         <button class="btn btn-primary" onclick="openModal('modalAccion')">+ Nueva Acción</button>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -185,8 +200,12 @@ require_once __DIR__ . '/../includes/header.php';
                     </td>
                     <td>
                         <div style="display:flex;gap:4px">
+                            <?php if ($puedeEscribir): ?>
                             <button onclick='editAccion(<?= json_encode($ac, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>)' class="btn btn-sm btn-secondary">✎</button>
                             <button onclick='confirmDelete("acciones.php?action=delete&id=<?=$ac['id']?>","esta acción remedial")' class="btn btn-sm btn-danger">✕</button>
+                            <?php else: ?>
+                            <span style="font-size:11px;color:#aaa">Solo lectura</span>
+                            <?php endif; ?>
                         </div>
                     </td>
                 </tr>

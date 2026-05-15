@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/expediente_schema.php';
 requireLogin();
+denyIfAprendiz(); // Aprendiz no accede a pendientes
 $pageTitle = 'Pendientes de Aprendices';
 $db = getDB();
 ensureExpedienteSchema($db);
@@ -12,9 +13,15 @@ $action     = $_GET['action'] ?? 'list';
 $id         = (int)($_GET['id'] ?? 0);
 $aprendizFilter = (int)($_GET['aprendiz_id'] ?? 0);
 
+// Instructor: solo lectura. Gestor y Coordinador/Admin: escritura.
+$puedeEscribir = !isInstructor();
+
 // ── GUARDAR ──────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrf();
+    if (!$puedeEscribir) {
+        $err = 'No tiene permisos para registrar o modificar pendientes.';
+    } else {
     $resultadosSeleccionados = array_map('intval', $_POST['resultado_ids'] ?? []);
     $data = [
         'aprendiz_id'           => (int)($_POST['aprendiz_id'] ?? 0),
@@ -44,11 +51,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $action = 'list';
     }
+    } // end else puedeEscribir
 }
 
 // ── ELIMINAR ─────────────────────────────────────────────────
 if ($action === 'delete' && $id) {
     verifyCsrf();
+    if (!$puedeEscribir) {
+        $err = 'No tiene permisos para eliminar pendientes.';
+        $action = 'list';
+    } else {
     try {
         $db->beginTransaction();
         // Eliminar dependencias antes de eliminar el pendiente
@@ -62,6 +74,7 @@ if ($action === 'delete' && $id) {
         $err = 'Error al eliminar el pendiente: ' . $e->getMessage();
     }
     $action = 'list';
+    }
 }
 
 // Datos auxiliares
@@ -147,7 +160,9 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
         <a href="<?= BASE_URL ?>/ajax/exportar_excel.php?tipo=pendientes" class="btn btn-excel">↓ Exportar Excel</a>
+        <?php if ($puedeEscribir): ?>
         <button class="btn btn-primary" onclick="openModal('modalPendiente')">+ Registrar Pendiente</button>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -231,15 +246,19 @@ require_once __DIR__ . '/../includes/header.php';
                         <a href="acciones.php?pendiente_id=<?= $p['id'] ?>" style="font-weight:700;color:var(--verde-dark)">
                             <?= $p['num_acciones'] ?> acción<?= $p['num_acciones']!==1?'es':'' ?>
                         </a>
+                        <?php if ($puedeEscribir): ?>
                         <br>
                         <a href="acciones.php?action=new&pendiente_id=<?= $p['id'] ?>" class="btn btn-sm btn-primary" style="margin-top:4px;font-size:10px">+ Agregar</a>
+                        <?php endif; ?>
                     </td>
                     <td>
                         <div style="display:flex;gap:4px">
                             <a href="expediente.php?aprendiz_id=<?= $p['aprendiz_id'] ?>&pendiente_id=<?= $p['id'] ?>" class="btn btn-sm btn-primary">Exp.</a>
+                            <?php if ($puedeEscribir): ?>
                             <button onclick='editPendiente(<?= json_encode($p, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>)' class="btn btn-sm btn-secondary">✎</button>
                             <button onclick='confirmDelete("pendientes.php?action=delete&id=<?= $p['id'] ?>","pendiente de <?= sanitize($p['aprendiz_nombre']) ?>")'
                                     class="btn btn-sm btn-danger">✕</button>
+                            <?php endif; ?>
                         </div>
                     </td>
                 </tr>

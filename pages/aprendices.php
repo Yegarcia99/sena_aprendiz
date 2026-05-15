@@ -2,6 +2,8 @@
 // pages/aprendices.php - Gestión de Aprendices
 require_once __DIR__ . '/../includes/auth.php';
 requireLogin();
+denyIfAprendiz(); // Aprendiz no accede a la lista general
+
 $pageTitle = 'Aprendices';
 $db = getDB();
 $msg = $err = '';
@@ -9,8 +11,15 @@ $ff  = filtroFichas($db, 'a');  // restricción por rol
 $action = $_GET['action'] ?? 'list';
 $id     = (int)($_GET['id'] ?? 0);
 
+// Solo Coordinador/Administrador puede crear, editar o eliminar
+$soloLectura = isInstructor();
+$puedeEscribir = isCoordinadorOrUp() || isGestor();
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrf();
+    if (!$puedeEscribir) {
+        $err = 'No tiene permisos para realizar esta acción.';
+    } else {
     $data = [
         'nombres'        => trim($_POST['nombres'] ?? ''),
         'apellidos'      => trim($_POST['apellidos'] ?? ''),
@@ -40,11 +49,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $err = strpos($e->getMessage(), 'Duplicate') !== false ? 'El número de documento ya existe.' : 'Error al guardar.';
         }
     }
-}
+    }
+} // end POST
 
 if ($action === 'delete' && $id) {
     verifyCsrf();
-    try {
+    if (!$puedeEscribir) {
+        $err = 'No tiene permisos para eliminar aprendices.';
+        $action = 'list';
+    } else {
+        try {
         $db->beginTransaction();
         // Eliminar registros dependientes antes de eliminar el aprendiz
         $db->prepare("DELETE FROM acciones_remediales WHERE pendiente_id IN (SELECT id FROM pendientes_aprendices WHERE aprendiz_id=?)")->execute([$id]);
@@ -61,9 +75,10 @@ if ($action === 'delete' && $id) {
         $db->prepare("DELETE FROM aprendices WHERE id=?")->execute([$id]);
         $db->commit();
         $msg = 'Aprendiz eliminado correctamente.';
-    } catch (PDOException $e) {
-        $db->rollBack();
-        $err = 'Error al eliminar el aprendiz: ' . $e->getMessage();
+        } catch (PDOException $e) {
+            $db->rollBack();
+            $err = 'Error al eliminar el aprendiz: ' . $e->getMessage();
+        }
     }
     $action = 'list';
 }
@@ -101,10 +116,14 @@ require_once __DIR__ . '/../includes/header.php';
         <div class="page-subtitle">Registro y seguimiento de aprendices activos</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <?php if ($puedeEscribir): ?>
         <button class="btn btn-upload" onclick="openModal('modalCargue')">↑ Cargue Masivo</button>
+        <?php endif; ?>
         <a href="<?= BASE_URL ?>/ajax/exportar_excel.php?tipo=aprendices" class="btn btn-excel">↓ Exportar Excel</a>
         <a href="<?= BASE_URL ?>/ajax/exportar_excel.php?tipo=plantilla_aprendices" class="btn btn-secondary">↓ Plantilla CSV</a>
+        <?php if ($puedeEscribir): ?>
         <button class="btn btn-primary" onclick="openModal('modalAprendiz')">+ Nuevo Aprendiz</button>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -142,10 +161,14 @@ require_once __DIR__ . '/../includes/header.php';
                     </td>
                     <td>
                         <div style="display:flex;gap:4px">
+                            <?php if ($puedeEscribir): ?>
                             <a href="pendientes.php?action=new&aprendiz_id=<?= $a['id'] ?>" class="btn btn-sm btn-secondary" title="Registrar pendiente">+</a>
+                            <?php endif; ?>
                             <a href="<?= BASE_URL ?>/pages/codigos_barras.php?ficha_id=<?= $a['ficha_id'] ?>" class="btn btn-sm btn-secondary" title="Ver código de barras">▣</a>
+                            <?php if ($puedeEscribir): ?>
                             <button onclick='editAprendiz(<?= json_encode($a, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>)' class="btn btn-sm btn-secondary">✎</button>
                             <button onclick='confirmDelete("aprendices.php?action=delete&id=<?= $a['id'] ?>","<?= sanitize($a['nombres'].' '.$a['apellidos']) ?>")' class="btn btn-sm btn-danger">✕</button>
+                            <?php endif; ?>
                         </div>
                     </td>
                 </tr>

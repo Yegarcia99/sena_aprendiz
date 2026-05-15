@@ -8,6 +8,17 @@ $pageTitle = 'Dashboard';
 $db = getDB();
 ensureExpedienteSchema($db);
 
+// Aprendiz: redirigir a su perfil/expediente propio
+if (isAprendiz()) {
+    $aprendizId = getAprendizId($db);
+    if ($aprendizId) {
+        header('Location: ' . BASE_URL . '/pages/expediente.php?aprendiz_id=' . $aprendizId);
+    } else {
+        header('Location: ' . BASE_URL . '/pages/perfil.php');
+    }
+    exit;
+}
+
 $stats = [];
 $stats['total_aprendices']  = $db->query("SELECT COUNT(*) FROM aprendices WHERE estado='Activo'")->fetchColumn();
 $stats['total_fichas']      = $db->query("SELECT COUNT(*) FROM fichas WHERE activa=1")->fetchColumn();
@@ -91,8 +102,12 @@ require_once __DIR__ . '/../includes/header.php';
         <div class="page-subtitle">Resumen general — <?= date('d \d\e F \d\e Y') ?></div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <?php if (!isInstructor()): ?>
         <a href="<?= BASE_URL ?>/pages/asistente_caso.php" class="btn btn-primary">+ Registrar Caso</a>
+        <?php endif; ?>
+        <?php if (isCoordinadorOrUp()): ?>
         <a href="<?= BASE_URL ?>/pages/reportes.php"       class="btn btn-secondary">Ver Reportes</a>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -267,6 +282,7 @@ require_once __DIR__ . '/../includes/header.php';
 <?php endif; ?>
 
 
+<?php if (!isInstructor()): ?>
 <!-- ══════════════════════════════════════════════
      SECCIÓN 2 — DISCIPLINARIO
 ══════════════════════════════════════════════ -->
@@ -337,5 +353,6 @@ require_once __DIR__ . '/../includes/header.php';
         </table>
     </div>
 </div>
+<?php endif; // !isInstructor ?>
 
 <?php require_once __DIR__ . '/../includes/footer.php'; ?>
