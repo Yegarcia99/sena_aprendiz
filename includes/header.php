@@ -28,7 +28,7 @@ if ($currentPage !== 'perfil') {
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700;800&family=Nunito+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="<?= $baseUrl ?>/assets/css/main.css">
+    <link rel="stylesheet" href="<?= $baseUrl ?>/assets/css/main.css?v=<?= filemtime(__DIR__ . '/../assets/css/main.css') ?>">
     <!-- PWA -->
     <link rel="manifest" href="<?= BASE_URL ?>/manifest.json">
     <meta name="theme-color" content="#39A900">
@@ -299,7 +299,13 @@ function marcarTodasLeidas() {
 
 // ── PWA: Service Worker + botón de instalación ──────────────
 if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('<?= BASE_URL ?>/sw.js').catch(() => {});
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+        navigator.serviceWorker.getRegistrations()
+            .then(registrations => registrations.forEach(registration => registration.unregister()))
+            .catch(() => {});
+    } else {
+        navigator.serviceWorker.register('<?= BASE_URL ?>/sw.js?v=3').catch(() => {});
+    }
 }
 let deferredPrompt = null;
 window.addEventListener('beforeinstallprompt', e => {

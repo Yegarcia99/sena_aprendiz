@@ -90,6 +90,7 @@ require_once __DIR__ . '/../includes/header.php';
     <div class="table-card" style="padding:24px">
         <div style="font-weight:800;font-size:15px;margin-bottom:18px;font-family:'Nunito',sans-serif">🔐 Cambiar Contraseña</div>
         <form method="POST">
+            <?= csrfField() ?>
             <div style="display:flex;flex-direction:column;gap:14px">
                 <div class="form-group" style="margin:0">
                     <label>Contraseña Actual *</label>
