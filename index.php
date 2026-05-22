@@ -42,48 +42,148 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <title>Iniciar Sesión | SENA Seguimiento Aprendices</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700;800&family=Nunito+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/main.css">
     <style>
-    /* ── Login responsive ─────────────────────────────── */
+    /* ── Login background ── */
     .login-page {
         min-height: 100vh;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: #eef3f0;
-        padding: 20px;
+        padding: 24px;
         box-sizing: border-box;
+        position: relative;
+        overflow: hidden;
+        background: #e8f5ec;
     }
+
+    /* Círculos decorativos */
+    .login-page::before {
+        content: "";
+        position: fixed;
+        width: 480px; height: 480px;
+        border-radius: 50%;
+        background: rgba(255,255,255,.55);
+        top: -140px; left: -120px;
+        pointer-events: none;
+    }
+    .login-page::after {
+        content: "";
+        position: fixed;
+        width: 380px; height: 380px;
+        border-radius: 50%;
+        background: rgba(255,255,255,.45);
+        bottom: -110px; right: -100px;
+        pointer-events: none;
+    }
+    .login-circle-sm {
+        position: fixed;
+        width: 160px; height: 160px;
+        border-radius: 50%;
+        background: rgba(255,255,255,.3);
+        top: 30px; right: 100px;
+        pointer-events: none;
+    }
+
+    /* Puntos decorativos */
+    .login-dots {
+        position: fixed;
+        display: grid;
+        gap: 9px;
+        pointer-events: none;
+        z-index: 0;
+    }
+    .login-dots-tr { top: 24px; right: 28px; grid-template-columns: repeat(5, 5px); }
+    .login-dots-bl { bottom: 24px; left: 28px; grid-template-columns: repeat(5, 5px); }
+    .login-dot { width: 4px; height: 4px; border-radius: 50%; background: rgba(46,139,87,.22); }
+
+    /* Tarjeta */
     .login-card {
+        position: relative;
+        z-index: 10;
         background: #fff;
-        border-radius: 16px;
-        box-shadow: 0 8px 40px rgba(0,0,0,.10);
-        padding: 36px 40px;
+        border-radius: 20px;
+        box-shadow: 0 8px 40px rgba(20,80,40,.13), 0 1px 4px rgba(20,80,40,.07);
+        padding: 38px 36px 28px;
         width: 100%;
-        max-width: 420px;
+        max-width: 400px;
         box-sizing: border-box;
     }
+
     @media (max-width: 480px) {
-        .login-card { padding: 28px 20px; border-radius: 12px; }
+        .login-card { padding: 28px 20px; border-radius: 14px; }
     }
-    .login-logo { display: flex; flex-direction: column; align-items: center; margin-bottom: 22px; }
-    .login-logo-box { width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; margin-bottom: 8px; }
-    .login-logo-box img { width: 100%; }
-    .brand { font-family: 'Nunito', sans-serif; font-weight: 800; font-size: 22px; color: #39A900; letter-spacing: 1px; }
-    .brand-sub { font-size: 12px; color: #888; margin-top: 2px; }
-    .login-title { font-family: 'Nunito', sans-serif; font-weight: 700; font-size: 18px; text-align: center; margin-bottom: 22px; color: #222; }
-    .login-footer { text-align: center; font-size: 12px; color: #aaa; margin-top: 22px; }
-    .intentos-bar {
-        height: 4px; border-radius: 2px; background: #eee; margin-top: 8px; overflow: hidden;
+
+    .login-logo {
+        display: flex; flex-direction: column;
+        align-items: center; margin-bottom: 20px;
     }
-    .intentos-fill {
-        height: 100%; border-radius: 2px; background: #e53935; transition: width .3s;
+    .login-logo-box {
+        width: 68px; height: 68px;
+        background: #eaf6ee;
+        border-radius: 16px;
+        display: flex; align-items: center; justify-content: center;
+        margin-bottom: 12px;
     }
+    .login-logo-box img { width: 52px; height: 52px; object-fit: contain; }
+
+    .brand { font-weight: 700; font-size: 22px; color: #1a4a2e; letter-spacing: 2px; }
+    .brand-sub { font-size: 11px; color: #7a9e8a; margin-top: 2px; }
+    .login-title { font-weight: 600; font-size: 16px; text-align: center; margin-bottom: 24px; color: #1a2e22; }
+
+    /* Inputs */
+    .login-card label {
+        font-size: 9.5px; font-weight: 700;
+        letter-spacing: 1px; text-transform: uppercase;
+        color: #6b8f7a;
+    }
+    .login-card input[type="text"],
+    .login-card input[type="password"] {
+        border: 1px solid #dde8e1;
+        border-radius: 9px;
+        font-size: 13px;
+        height: 44px;
+    }
+    .login-card input:focus {
+        border-color: #2e8b57;
+        box-shadow: 0 0 0 3px rgba(46,139,87,.1);
+    }
+    .login-card .btn-primary {
+        border-radius: 9px;
+        font-size: 14px;
+        font-weight: 600;
+        box-shadow: 0 4px 14px rgba(46,139,87,.25);
+        letter-spacing: .2px;
+    }
+
+    .login-footer {
+        text-align: center; font-size: 11px;
+        color: #9ab5a4; margin-top: 22px;
+        display: flex; align-items: center;
+        justify-content: center; gap: 7px;
+    }
+    .login-footer-dot {
+        width: 3px; height: 3px;
+        border-radius: 50%; background: #2e8b57;
+        display: inline-block;
+    }
+
+    .intentos-bar { height: 4px; border-radius: 2px; background: #eee; margin-top: 8px; overflow: hidden; }
+    .intentos-fill { height: 100%; border-radius: 2px; background: #e53935; transition: width .3s; }
     </style>
 </head>
 <body>
 <div class="login-page">
+    <!-- Decoraciones -->
+    <div class="login-circle-sm"></div>
+    <div class="login-dots login-dots-tr">
+        <?php for($i=0;$i<25;$i++) echo '<div class="login-dot"></div>'; ?>
+    </div>
+    <div class="login-dots login-dots-bl">
+        <?php for($i=0;$i<25;$i++) echo '<div class="login-dot"></div>'; ?>
+    </div>
+
     <div class="login-card">
         <div class="login-logo">
             <div class="login-logo-box">
@@ -145,7 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </form>
 
         <div class="login-footer">
-            SENA &bull; Regional Caldas &bull; <?= date('Y') ?>
+            SENA <span class="login-footer-dot"></span> Regional Caldas <span class="login-footer-dot"></span> <?= date('Y') ?>
         </div>
     </div>
 </div>

@@ -27,7 +27,7 @@ if ($currentPage !== 'perfil') {
     <title><?= APP_NAME ?></title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700;800&family=Nunito+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="<?= $baseUrl ?>/assets/css/main.css?v=<?= filemtime(__DIR__ . '/../assets/css/main.css') ?>">
     <!-- PWA -->
     <link rel="manifest" href="<?= BASE_URL ?>/manifest.json">
@@ -98,6 +98,14 @@ if ($currentPage !== 'perfil') {
         </a>
         <?php endif; ?>
 
+        <?php if (!$esInstructor && !$esAprendiz): ?>
+        <div class="nav-section-title disciplinario">⚠️ Disciplinario</div>
+        <a href="<?= BASE_URL ?>/pages/disciplinario.php" class="nav-item <?= $currentPage === 'disciplinario' ? 'active' : '' ?>">
+            <span class="nav-icon">⚠</span>
+            <span>Seguimiento Disc.</span>
+        </a>
+        <?php endif; ?>
+
         <?php if ($esCoordOrUp): ?>
         <div class="nav-section-title">Configuración</div>
         <a href="<?= BASE_URL ?>/pages/instructores.php" class="nav-item <?= $currentPage === 'instructores' ? 'active' : '' ?>">
@@ -116,54 +124,14 @@ if ($currentPage !== 'perfil') {
             <span class="nav-icon">📊</span>
             <span>Analítica de Fichas</span>
         </a>
-        <?php endif; ?>
-        <?php if ($esCoordOrUp): ?>
         <a href="<?= BASE_URL ?>/pages/reportes.php" class="nav-item <?= $currentPage === 'reportes' ? 'active' : '' ?>">
             <span class="nav-icon">▣</span>
             <span>Reportes</span>
         </a>
         <?php endif; ?>
-
-        <?php if (!$esInstructor && !$esAprendiz): ?>
-        <div class="nav-section-title disciplinario">⚠️ Disciplinario</div>
-        <a href="<?= BASE_URL ?>/pages/disciplinario.php" class="nav-item <?= $currentPage === 'disciplinario' ? 'active' : '' ?>">
-            <span class="nav-icon">⚠</span>
-            <span>Seguimiento Disc.</span>
-        </a>
-        <?php endif; ?>
         <?php endif; // !esAprendiz ?>
 
-        <div class="nav-section-title">Mi Cuenta</div>
-        <a href="<?= BASE_URL ?>/pages/notificaciones.php" class="nav-item <?= $currentPage === 'notificaciones' ? 'active' : '' ?>">
-            <span class="nav-icon">🔔</span>
-            <span>Notificaciones</span>
-        </a>
-        <a href="<?= BASE_URL ?>/pages/perfil.php" class="nav-item <?= $currentPage === 'perfil' ? 'active' : '' ?>">
-            <span class="nav-icon">🔐</span>
-            <span>Mi Perfil</span>
-        </a>
-        <?php if ($esAdmin): ?>
-        <a href="<?= BASE_URL ?>/pages/gestion_usuarios.php" class="nav-item <?= $currentPage === 'gestion_usuarios' ? 'active' : '' ?>">
-            <span class="nav-icon">👥</span>
-            <span>Gestión de Usuarios</span>
-        </a>
-        <?php endif; ?>
     </nav>
-
-    <div class="sidebar-footer">
-        <div class="user-info">
-            <div class="user-avatar"><?= strtoupper(substr($user['nombres'] ?? 'U', 0, 1)) ?></div>
-            <div>
-                <div class="user-name"><?= sanitize($user['nombres'] ?? '') ?></div>
-                <div class="user-role"><?= sanitize($user['rol'] ?? '') ?></div>
-            </div>
-        </div>
-        <a href="<?= BASE_URL ?>/pages/perfil.php" style="font-size:11px;color:var(--verde);text-decoration:none;display:block;margin-bottom:4px">🔐 Mi Perfil</a>
-        <form method="POST" action="<?= BASE_URL ?>/logout.php" style="margin:0">
-            <?= csrfField() ?>
-            <button type="submit" class="logout-btn" style="cursor:pointer;width:100%">Salir</button>
-        </form>
-    </div>
 </aside>
 
 <!-- MAIN CONTENT -->
@@ -172,7 +140,47 @@ if ($currentPage !== 'perfil') {
         <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
         <div class="topbar-title"><?= $pageTitle ?? APP_NAME ?></div>
         <div class="topbar-right">
-            <span class="badge-fecha"><?= date('d/m/Y H:i') ?></span>
+            <div class="topbar-divider"></div>
+            <!-- Menú de usuario — hamburguesa -->
+            <div class="user-menu-wrap" style="position:relative">
+                <button class="user-menu-btn" onclick="toggleUserMenu()" title="Mi cuenta">
+                    <div class="user-avatar"><?= strtoupper(substr($user['nombres'] ?? 'U', 0, 1)) ?></div>
+                    <div class="user-menu-info">
+                        <div class="user-name"><?= sanitize($user['nombres'] ?? '') ?></div>
+                        <div class="user-role"><?= sanitize($user['rol'] ?? '') ?></div>
+                    </div>
+                    <svg class="user-menu-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <div id="panelUserMenu" class="user-menu-panel" style="display:none">
+                    <div class="user-menu-header">
+                        <div class="user-avatar" style="width:34px;height:34px;font-size:14px"><?= strtoupper(substr($user['nombres'] ?? 'U', 0, 1)) ?></div>
+                        <div>
+                            <div style="font-size:13px;font-weight:600;color:var(--ink)"><?= sanitize($user['nombres'] ?? '') ?></div>
+                            <div style="font-size:11px;color:var(--muted)"><?= sanitize($user['rol'] ?? '') ?></div>
+                        </div>
+                    </div>
+                    <div class="user-menu-divider"></div>
+                    <a href="<?= BASE_URL ?>/pages/notificaciones.php" class="user-menu-item">
+                        <span class="user-menu-icon">🔔</span> Notificaciones
+                        <?php if (!empty($notifCount) && $notifCount > 0): ?>
+                        <span class="user-menu-badge"><?= min($notifCount, 99) ?></span>
+                        <?php endif; ?>
+                    </a>
+                    <a href="<?= BASE_URL ?>/pages/perfil.php" class="user-menu-item">
+                        <span class="user-menu-icon">👤</span> Mi Perfil
+                    </a>
+                    <?php if ($esAdmin): ?>
+                    <a href="<?= BASE_URL ?>/pages/gestion_usuarios.php" class="user-menu-item">
+                        <span class="user-menu-icon">👥</span> Gestión de Usuarios
+                    </a>
+                    <?php endif; ?>
+                    <div class="user-menu-divider"></div>
+                    <form method="POST" action="<?= BASE_URL ?>/logout.php" style="margin:0;padding:6px 8px">
+                        <?= csrfField() ?>
+                        <button type="submit" class="user-menu-logout">Salir</button>
+                    </form>
+                </div>
+            </div>
             <!-- Botón instalar PWA — solo visible cuando el navegador lo soporta -->
             <button id="btnPwaInstall" onclick="pwaInstall()"
                 title="Instalar app en tu dispositivo"
@@ -240,6 +248,17 @@ if ($currentPage !== 'perfil') {
     <div class="content-area">
 <script>
 
+function toggleUserMenu() {
+    const p = document.getElementById('panelUserMenu');
+    p.style.display = p.style.display === 'none' ? 'block' : 'none';
+}
+document.addEventListener('click', function(e) {
+    const wrap = document.querySelector('.user-menu-wrap');
+    const panel = document.getElementById('panelUserMenu');
+    if (panel && wrap && !wrap.contains(e.target)) {
+        panel.style.display = 'none';
+    }
+});
 function toggleSidebar() {
     const s = document.getElementById('sidebar');
     s.classList.toggle('open');
