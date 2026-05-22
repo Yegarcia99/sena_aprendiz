@@ -15,6 +15,7 @@ $msg = $err = '';
 
 // ── Cambiar contraseña de un usuario ────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion'])) {
+    verifyCsrf();
 
     $uid      = (int)($_POST['usuario_id'] ?? 0);
     $accion   = $_POST['accion'];
@@ -137,6 +138,7 @@ require_once __DIR__ . '/../includes/header.php';
                 <!-- Activar / desactivar (no permitir desactivar a sí mismo) -->
                 <?php if ($u['id'] != ($_SESSION['user']['id'] ?? 0)): ?>
                 <form method="POST" style="display:inline" onsubmit="return confirm('¿Confirmar cambio de estado?')">
+                    <?= csrfField() ?>
                     <input type="hidden" name="accion" value="toggle_activo">
                     <input type="hidden" name="usuario_id" value="<?= $u['id'] ?>">
                     <button type="submit" class="btn <?= $u['activo'] ? 'btn-danger' : 'btn-primary' ?>"
@@ -158,6 +160,7 @@ require_once __DIR__ . '/../includes/header.php';
         <div style="font-family:'Nunito',sans-serif;font-weight:800;font-size:17px;margin-bottom:4px">🔑 Cambiar Contraseña</div>
         <div id="modalNombre" style="font-size:13px;color:var(--muted);margin-bottom:20px"></div>
         <form method="POST" onsubmit="return validarModal()">
+            <?= csrfField() ?>
             <input type="hidden" name="accion" value="cambiar_pass">
             <input type="hidden" name="usuario_id" id="modalUserId">
             <div class="form-group" style="margin-bottom:14px">

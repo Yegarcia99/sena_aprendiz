@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Vista previa - SENA Seguimiento</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --sena: #39a900;
+            --sena-700: #237300;
+            --ink: #17211b;
+            --muted: #65736b;
+            --line: #dce5df;
+            --bg: #f3f6f4;
+            --panel: #ffffff;
+            --soft: #f8faf8;
+            --warning: #b7791f;
+            --danger: #c24135;
+            --info: #2563a8;
+            --sidebar: #102018;
+            --sidebar-2: #142a1f;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: Inter, system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--ink);
+            display: flex;
+            min-height: 100vh;
+            font-size: 14px;
+        }
+        .sidebar {
+            width: 272px;
+            background: linear-gradient(180deg, var(--sidebar), var(--sidebar-2));
+            color: #fff;
+            padding: 22px 14px;
+            position: fixed;
+            inset: 0 auto 0 0;
+        }
+        .brand {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            padding: 6px 8px 22px;
+            border-bottom: 1px solid rgba(255,255,255,.08);
+            margin-bottom: 18px;
+        }
+        .logo {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: var(--sena);
+            display: grid;
+            place-items: center;
+            color: #fff;
+            font-weight: 900;
+            letter-spacing: .5px;
+        }
+        .brand strong { display:block; font-size: 19px; letter-spacing: 3px; }
+        .brand span { display:block; color: rgba(255,255,255,.52); font-size: 11px; margin-top: 3px; }
+        .nav-label {
+            color: rgba(255,255,255,.34);
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 1.8px;
+            text-transform: uppercase;
+            margin: 18px 10px 8px;
+        }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: rgba(255,255,255,.68);
+            text-decoration: none;
+            padding: 10px 12px;
+            border-radius: 9px;
+            font-weight: 650;
+            margin-bottom: 4px;
+        }
+        .nav-item.active,
+        .nav-item:hover {
+            background: rgba(57,169,0,.16);
+            color: #fff;
+        }
+        .nav-dot {
+            width: 22px;
+            height: 22px;
+            display: grid;
+            place-items: center;
+            border-radius: 7px;
+            background: rgba(255,255,255,.08);
+            color: #8ee36b;
+            font-size: 12px;
+        }
+        main {
+            margin-left: 272px;
+            min-height: 100vh;
+            width: calc(100% - 272px);
+        }
+        .topbar {
+            height: 66px;
+            background: rgba(255,255,255,.92);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 28px;
+            position: sticky;
+            top: 0;
+            z-index: 3;
+        }
+        .topbar strong { color: var(--sena-700); font-size: 17px; }
+        .pill {
+            border: 1px solid #b9dfaa;
+            background: #f1faed;
+            color: var(--sena-700);
+            padding: 7px 13px;
+            border-radius: 999px;
+            font-weight: 700;
+            font-size: 12px;
+        }
+        .content {
+            padding: 28px;
+            max-width: 1440px;
+        }
+        .page-head {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 22px;
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: center;
+            box-shadow: 0 12px 34px rgba(16,32,24,.05);
+            margin-bottom: 18px;
+        }
+        h1 { margin: 0; font-size: 28px; letter-spacing: -.02em; }
+        .subtitle { margin-top: 6px; color: var(--muted); line-height: 1.5; }
+        .actions { display:flex; gap: 10px; flex-wrap: wrap; }
+        .btn {
+            border: 1px solid var(--line);
+            background: #fff;
+            color: #214631;
+            padding: 10px 16px;
+            border-radius: 9px;
+            font-weight: 750;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+        .btn.primary {
+            background: var(--sena);
+            color: #fff;
+            border-color: var(--sena);
+            box-shadow: 0 8px 18px rgba(57,169,0,.22);
+        }
+        .workflow {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+        .step {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 15px;
+            min-height: 116px;
+        }
+        .step .num {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: #e7f6df;
+            color: var(--sena-700);
+            display: grid;
+            place-items: center;
+            font-weight: 850;
+            margin-bottom: 10px;
+        }
+        .step strong { display: block; margin-bottom: 5px; }
+        .step span { color: var(--muted); font-size: 12px; line-height: 1.45; }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+        .stat {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 18px;
+            position: relative;
+            overflow: hidden;
+        }
+        .stat::before {
+            content: "";
+            position: absolute;
+            inset: 0 0 auto;
+            height: 4px;
+            background: var(--sena);
+        }
+        .stat.warn::before { background: #d99017; }
+        .stat.danger::before { background: var(--danger); }
+        .stat.info::before { background: var(--info); }
+        .stat-value { font-size: 32px; font-weight: 850; letter-spacing: -.04em; }
+        .stat-label { color: var(--muted); font-weight: 750; text-transform: uppercase; font-size: 11px; letter-spacing: .06em; margin-top: 4px; }
+        .grid {
+            display: grid;
+            grid-template-columns: 1.1fr .9fr;
+            gap: 18px;
+            align-items: start;
+        }
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 10px 28px rgba(16,32,24,.04);
+        }
+        .card-head {
+            padding: 16px 18px;
+            border-bottom: 1px solid var(--line);
+            background: var(--soft);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+        .card-title { font-weight: 850; }
+        .card-note { color: var(--muted); font-size: 12px; margin-top: 3px; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            text-align: left;
+            padding: 12px 16px;
+            background: #f4f7f5;
+            color: #355242;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+        }
+        td {
+            padding: 13px 16px;
+            border-top: 1px solid var(--line);
+            vertical-align: middle;
+        }
+        .muted { color: var(--muted); font-size: 12px; }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 5px 10px;
+            font-size: 11px;
+            font-weight: 850;
+            background: #eef4f0;
+            color: #355242;
+        }
+        .badge.warn { background: #fff4df; color: var(--warning); }
+        .badge.danger { background: #fff0ed; color: var(--danger); }
+        .badge.ok { background: #ecf8e7; color: var(--sena-700); }
+        .form-preview {
+            padding: 18px;
+            display: grid;
+            gap: 14px;
+        }
+        label { display:block; color: var(--muted); font-weight: 750; font-size: 12px; margin-bottom: 6px; }
+        input, select, textarea {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 9px;
+            padding: 10px 12px;
+            font: inherit;
+            background: #fff;
+        }
+        textarea { min-height: 92px; resize: vertical; }
+        .form-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        @media (max-width: 1100px) {
+            .workflow, .stats, .grid { grid-template-columns: 1fr 1fr; }
+        }
+        @media (max-width: 780px) {
+            .sidebar { display:none; }
+            main { margin-left:0; width:100%; }
+            .page-head, .grid, .workflow, .stats, .form-grid { grid-template-columns:1fr; display:grid; }
+            .page-head { align-items:start; }
+        }
+    </style>
+</head>
+<body>
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="logo">S</div>
+            <div><strong>SENA</strong><span>Seguimiento Aprendices</span></div>
+        </div>
+        <div class="nav-label">Principal</div>
+        <a class="nav-item active" href="#"><span class="nav-dot">◆</span> Dashboard</a>
+        <div class="nav-label">Gestion Academica</div>
+        <a class="nav-item" href="#"><span class="nav-dot">◎</span> Aprendices</a>
+        <a class="nav-item" href="#"><span class="nav-dot">○</span> Pendientes</a>
+        <a class="nav-item" href="#"><span class="nav-dot">▶</span> Asistente de Caso</a>
+        <a class="nav-item" href="#"><span class="nav-dot">▣</span> Expediente</a>
+        <a class="nav-item" href="#"><span class="nav-dot">◑</span> Comite</a>
+        <div class="nav-label">Configuracion</div>
+        <a class="nav-item" href="#"><span class="nav-dot">◇</span> Instructores</a>
+        <a class="nav-item" href="#"><span class="nav-dot">▤</span> Reportes</a>
+    </aside>
+
+    <main>
+        <div class="topbar">
+            <strong>Centro de Seguimiento</strong>
+            <span class="pill">19/05/2026 12:40</span>
+        </div>
+        <div class="content">
+            <section class="page-head">
+                <div>
+                    <h1>Centro de Seguimiento</h1>
+                    <div class="subtitle">Control operativo de casos, acciones remediales, planes de mejoramiento, soportes y remisiones a comite.</div>
+                </div>
+                <div class="actions">
+                    <a class="btn primary" href="#">Abrir asistente</a>
+                    <a class="btn" href="#">Consultar expediente</a>
+                </div>
+            </section>
+
+            <section class="workflow">
+                <div class="step"><div class="num">1</div><strong>Caso</strong><span>Dificultad academica, inasistencia o situacion disciplinaria.</span></div>
+                <div class="step"><div class="num">2</div><strong>Accion</strong><span>Estrategia aplicada o justificacion documentada.</span></div>
+                <div class="step"><div class="num">3</div><strong>Instancia</strong><span>Plan con acta, evidencias y firmas.</span></div>
+                <div class="step"><div class="num">4</div><strong>Expediente</strong><span>Trazabilidad consolidada por aprendiz.</span></div>
+                <div class="step"><div class="num">5</div><strong>Comite</strong><span>Remision completa o excepcion sustentada.</span></div>
+            </section>
+
+            <section class="stats">
+                <div class="stat"><div class="stat-value">128</div><div class="stat-label">Aprendices activos</div></div>
+                <div class="stat warn"><div class="stat-value">14</div><div class="stat-label">Pendientes</div></div>
+                <div class="stat danger"><div class="stat-value">5</div><div class="stat-label">Sin accion</div></div>
+                <div class="stat info"><div class="stat-value">31</div><div class="stat-label">Soportes</div></div>
+            </section>
+
+            <section class="grid">
+                <div class="card">
+                    <div class="card-head">
+                        <div><div class="card-title">Expedientes que requieren atencion</div><div class="card-note">Casos activos con soportes pendientes.</div></div>
+                        <a class="btn" href="#">Ver todos</a>
+                    </div>
+                    <table>
+                        <thead><tr><th>Aprendiz</th><th>Ficha</th><th>Estado</th><th>Accion</th></tr></thead>
+                        <tbody>
+                            <tr><td><strong>Laura Martinez</strong><div class="muted">CC 100245</div></td><td>2929061</td><td><span class="badge warn">Primera instancia</span></td><td><a class="btn" href="#">Abrir</a></td></tr>
+                            <tr><td><strong>Carlos Rojas</strong><div class="muted">TI 998812</div></td><td>2929062</td><td><span class="badge danger">Sin soporte</span></td><td><a class="btn" href="#">Abrir</a></td></tr>
+                            <tr><td><strong>Daniela Ruiz</strong><div class="muted">CC 109088</div></td><td>2929061</td><td><span class="badge ok">Completo</span></td><td><a class="btn" href="#">Comite</a></td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card">
+                    <div class="card-head">
+                        <div><div class="card-title">Asistente de caso</div><div class="card-note">Vista de formulario con el nuevo estilo.</div></div>
+                    </div>
+                    <div class="form-preview">
+                        <div class="form-grid">
+                            <div><label>Tipo de caso</label><select><option>Academico</option></select></div>
+                            <div><label>Momento</label><select><option>Resultado finalizado</option></select></div>
+                        </div>
+                        <div><label>Aprendiz</label><input value="Laura Martinez - Ficha 2929061"></div>
+                        <div><label>Motivo</label><textarea>Describe la situacion, evidencia pendiente o novedad disciplinaria.</textarea></div>
+                        <div class="actions"><a class="btn primary" href="#">Guardar caso</a><a class="btn" href="#">Cancelar</a></div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+</body>
+</html>
