@@ -42,7 +42,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $stmt = $db->prepare("INSERT INTO aprendices (nombres,apellidos,documento,tipo_documento,email,telefono,ficha_id,estado) VALUES (?,?,?,?,?,?,?,?)");
                 $stmt->execute(array_values($data));
+                $nuevoId = (int)$db->lastInsertId();
                 $msg = 'Aprendiz registrado correctamente.';
+                // Correo de bienvenida
+                require_once __DIR__ . '/../includes/notificaciones.php';
+                $fi = $db->prepare("SELECT f.numero_ficha, p.nombre AS programa FROM fichas f JOIN programas p ON p.id=f.programa_id WHERE f.id=?");
+                $fi->execute([$data['ficha_id']]);
+                $fiRow = $fi->fetch();
+                enviarBienvenidaAprendiz($db, $nuevoId, $data['nombres'], $data['apellidos'], $data['documento'], $data['email'], $fiRow['numero_ficha'] ?? '', $fiRow['programa'] ?? '', getCurrentUser()['id'] ?? 0);
             }
             $action = 'list';
         } catch (PDOException $e) {

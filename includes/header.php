@@ -80,7 +80,7 @@ if ($currentPage !== 'perfil') {
         <?php if (!$esInstructor): ?>
         <a href="<?= BASE_URL ?>/pages/asistente_caso.php" class="nav-item <?= $currentPage === 'asistente_caso' ? 'active' : '' ?>">
             <span class="nav-icon">▶</span>
-            <span>Asistente de Caso</span>
+            <span>Asistente Académico</span>
         </a>
         <a href="<?= BASE_URL ?>/pages/acciones.php" class="nav-item <?= $currentPage === 'acciones' ? 'active' : '' ?>">
             <span class="nav-icon">◐</span>
@@ -100,6 +100,10 @@ if ($currentPage !== 'perfil') {
 
         <?php if (!$esInstructor && !$esAprendiz): ?>
         <div class="nav-section-title disciplinario">⚠️ Disciplinario</div>
+        <a href="<?= BASE_URL ?>/pages/asistente_disciplinario.php" class="nav-item <?= $currentPage === 'asistente_disciplinario' ? 'active' : '' ?>">
+            <span class="nav-icon">▶</span>
+            <span>Asistente Disciplinario</span>
+        </a>
         <a href="<?= BASE_URL ?>/pages/disciplinario.php" class="nav-item <?= $currentPage === 'disciplinario' ? 'active' : '' ?>">
             <span class="nav-icon">⚠</span>
             <span>Seguimiento Disc.</span>

@@ -3,9 +3,9 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/expediente_schema.php';
 requireLogin();
-denyIfInstructorOrAprendiz(); // Solo Gestor, Coordinador, Administrador
+denyIfInstructorOrAprendiz();
 
-$pageTitle = 'Asistente de Caso';
+$pageTitle = 'Asistente Académico';
 $db = getDB();
 ensureExpedienteSchema($db);
 
@@ -28,19 +28,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $db->beginTransaction();
 
-        $aprendizId = (int)($_POST['aprendiz_id'] ?? 0);
+        $aprendizId    = (int)($_POST['aprendiz_id'] ?? 0);
         $competenciaId = (int)($_POST['competencia_id'] ?? 0);
-        $resultadoId = (int)($_POST['resultado_id'] ?? 0) ?: null;
-        $instructorId = (int)($_POST['instructor_id'] ?? 0);
-        $tipoCaso = $_POST['tipo_caso'] ?? 'Academico';
-        $momentoProceso = $_POST['momento_proceso'] ?? 'Durante el resultado';
-        $estadoPendiente = $_POST['estado_pendiente'] ?? 'Pendiente';
-        $trimestre = (int)($_POST['trimestre_ocurrencia'] ?? 1);
-        $motivo = trim($_POST['motivo'] ?? '');
+        $resultadoId   = (int)($_POST['resultado_id'] ?? 0) ?: null;
+        $instructorId  = (int)($_POST['instructor_id'] ?? 0);
+        $tipoCaso      = $_POST['tipo_caso'] ?? 'Academico';
+        $momentoProceso     = $_POST['momento_proceso'] ?? 'Durante el resultado';
+        $estadoPendiente    = $_POST['estado_pendiente'] ?? 'Pendiente';
+        $trimestre          = (int)($_POST['trimestre_ocurrencia'] ?? 1);
+        $motivo             = trim($_POST['motivo'] ?? '');
         $observacionesPendiente = trim($_POST['observaciones_pendiente'] ?? '');
 
-        if (!$aprendizId || !$competenciaId || !$instructorId || !$motivo) {
-            throw new RuntimeException('Seleccione aprendiz, competencia, instructor y describa el motivo del caso.');
+        if (!$aprendizId || !$instructorId || !$motivo) {
+            throw new RuntimeException('Seleccione aprendiz, instructor y describa el motivo del caso.');
+        }
+
+        // Para casos académicos se requiere competencia
+        $esDisciplinario = in_array($tipoCaso, ['Disciplinario', 'Convivencia', 'Falta disciplinaria']);
+        if (!$esDisciplinario && !$competenciaId) {
+            throw new RuntimeException('Para casos académicos debe seleccionar una competencia.');
         }
 
         $stmt = $db->prepare("
@@ -50,30 +56,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ");
         $stmt->execute([
             $aprendizId,
-            $competenciaId,
-            $resultadoId,
+            $esDisciplinario ? null : $competenciaId,
+            $esDisciplinario ? null : $resultadoId,
             $instructorId,
             $trimestre,
             $_POST['fecha_registro'] ?? date('Y-m-d'),
             $tipoCaso,
             $motivo,
-            postBool('debe_repetir'),
+            $esDisciplinario ? 0 : postBool('debe_repetir'),
             $estadoPendiente,
             trim($observacionesPendiente . "\nMomento del proceso: " . $momentoProceso),
         ]);
         $pendienteId = (int)$db->lastInsertId();
 
-        $huboAccion = $_POST['hubo_accion'] ?? 'Si';
+        $huboAccion      = $_POST['hubo_accion'] ?? 'Si';
         $accionResultado = $_POST['resultado_accion'] ?? 'En proceso';
-        $accionTipo = $huboAccion === 'Si' ? ($_POST['tipo_accion'] ?? 'Refuerzo presencial') : 'Sin accion remedial - justificacion';
-        $accionDescripcion = trim($_POST['descripcion_accion'] ?? '');
-        $justificacionSinAccion = trim($_POST['justificacion_sin_accion'] ?? '');
+        $accionTipo      = $huboAccion === 'Si' ? ($_POST['tipo_accion'] ?? 'Refuerzo presencial') : 'Sin accion remedial - justificacion';
+        $accionDescripcion       = trim($_POST['descripcion_accion'] ?? '');
+        $justificacionSinAccion  = trim($_POST['justificacion_sin_accion'] ?? '');
 
         if ($huboAccion === 'Si' && $accionDescripcion === '') {
-            throw new RuntimeException('Describa la accion remedial realizada.');
+            throw new RuntimeException('Describa la accion realizada.');
         }
         if ($huboAccion !== 'Si' && $justificacionSinAccion === '') {
-            throw new RuntimeException('Explique por que no aplica accion remedial.');
+            throw new RuntimeException('Explique por que no aplica accion.');
         }
 
         $stmt = $db->prepare("
@@ -97,16 +103,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($file = firstUploadedFile('soporte_accion')) {
             guardarSoporteExpediente($db, $file, [
-                'aprendiz_id' => $aprendizId,
+                'aprendiz_id'  => $aprendizId,
                 'pendiente_id' => $pendienteId,
-                'accion_id' => $accionId,
+                'accion_id'    => $accionId,
                 'tipo_soporte' => $huboAccion === 'Si' ? 'Soporte de accion remedial' : 'Justificacion sin accion remedial',
-                'descripcion' => trim($_POST['observaciones_accion'] ?? ''),
-                'subido_por' => $user['id'] ?? null,
+                'descripcion'  => trim($_POST['observaciones_accion'] ?? ''),
+                'subido_por'   => $user['id'] ?? null,
             ]);
         }
 
-        $crearPlan = isset($_POST['crear_plan']);
+        // Plan de mejoramiento (solo académico)
+        $crearPlan = isset($_POST['crear_plan']) && !$esDisciplinario;
         if ($crearPlan) {
             $descripcionPlan = trim($_POST['descripcion_plan'] ?? '');
             if ($descripcionPlan === '') {
@@ -139,12 +146,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($file = firstUploadedFile('soporte_plan')) {
                 guardarSoporteExpediente($db, $file, [
-                    'aprendiz_id' => $aprendizId,
+                    'aprendiz_id'  => $aprendizId,
                     'pendiente_id' => $pendienteId,
-                    'plan_id' => $planId,
+                    'plan_id'      => $planId,
                     'tipo_soporte' => 'Acta de plan de mejoramiento',
-                    'descripcion' => 'Acta o evidencia de concertacion del plan',
-                    'subido_por' => $user['id'] ?? null,
+                    'descripcion'  => 'Acta o evidencia de concertacion del plan',
+                    'subido_por'   => $user['id'] ?? null,
                 ]);
             }
         } elseif ($accionResultado === 'Aprobado') {
@@ -157,17 +164,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($file = firstUploadedFile('soporte_general')) {
             guardarSoporteExpediente($db, $file, [
-                'aprendiz_id' => $aprendizId,
+                'aprendiz_id'  => $aprendizId,
                 'pendiente_id' => $pendienteId,
                 'tipo_soporte' => $_POST['tipo_soporte_general'] ?? 'Soporte general',
-                'descripcion' => trim($_POST['descripcion_soporte_general'] ?? ''),
-                'subido_por' => $user['id'] ?? null,
+                'descripcion'  => trim($_POST['descripcion_soporte_general'] ?? ''),
+                'subido_por'   => $user['id'] ?? null,
             ]);
         }
 
         if (isset($_POST['registrar_notificacion'])) {
-            $correo = trim($_POST['correo_destino'] ?? '');
-            $asunto = trim($_POST['asunto_notificacion'] ?? '');
+            $correo    = trim($_POST['correo_destino'] ?? '');
+            $asunto    = trim($_POST['asunto_notificacion'] ?? '');
             $mensajeNot = trim($_POST['mensaje_notificacion'] ?? '');
             if ($correo && $asunto && $mensajeNot) {
                 $stmt = $db->prepare("
@@ -180,7 +187,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $db->commit();
-        $msg = 'Caso registrado. Revise el expediente para ver la trazabilidad completa.';
+        $msg = 'Caso registrado correctamente. Revise el expediente para ver la trazabilidad completa.';
         $_GET['aprendiz_id'] = $aprendizId;
     } catch (Throwable $e) {
         if ($db->inTransaction()) $db->rollBack();
@@ -188,13 +195,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$aprendices = $db->query("
-    SELECT a.id, CONCAT(a.apellidos, ', ', a.nombres) AS nombre, a.documento, a.email, f.numero_ficha
-    FROM aprendices a
-    JOIN fichas f ON f.id=a.ficha_id
-    WHERE a.estado='Activo'
-    ORDER BY a.apellidos, a.nombres
-")->fetchAll();
+$aprendices   = $db->query("SELECT a.id, CONCAT(a.apellidos, ', ', a.nombres) AS nombre, a.documento, a.email, f.numero_ficha FROM aprendices a JOIN fichas f ON f.id=a.ficha_id WHERE a.estado='Activo' ORDER BY a.apellidos, a.nombres")->fetchAll();
 $instructores = $db->query("SELECT id, CONCAT(nombres,' ',apellidos) AS nombre FROM instructores WHERE activo=1 ORDER BY nombres")->fetchAll();
 $competencias = $db->query("SELECT c.id, c.nombre, c.trimestre, p.nombre AS programa FROM competencias c JOIN programas p ON p.id=c.programa_id WHERE c.activa=1 ORDER BY c.nombre")->fetchAll();
 $coordinadores = $db->query("SELECT id, CONCAT(nombres,' ',apellidos) AS nombre FROM usuarios WHERE rol IN ('Administrador','Coordinador') AND activo=1 ORDER BY nombres")->fetchAll();
@@ -204,8 +205,8 @@ require_once __DIR__ . '/../includes/header.php';
 
 <div class="page-header">
     <div>
-        <div class="page-title">Asistente de Caso</div>
-        <div class="page-subtitle">Registro guiado de dificultad, accion remedial, evidencias, instancia y notificacion</div>
+        <div class="page-title">Asistente Académico</div>
+        <div class="page-subtitle">Seleccione el tipo de caso para registrar el flujo correcto</div>
     </div>
     <a href="expediente.php" class="btn btn-secondary">Ver expedientes</a>
 </div>
@@ -213,294 +214,584 @@ require_once __DIR__ . '/../includes/header.php';
 <?php if ($msg): ?><div class="alert alert-success"><?= sanitize($msg) ?></div><?php endif; ?>
 <?php if ($err): ?><div class="alert alert-error"><?= sanitize($err) ?></div><?php endif; ?>
 
-<div class="table-card" style="margin-bottom:18px">
-    <div class="table-card-header">
-        <div class="table-card-title">Ruta del caso</div>
+<!-- ── Selector de tipo de caso ── -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:22px">
+    <div id="tab-academico" onclick="cambiarTab('academico')" style="cursor:pointer;border-radius:var(--radius);padding:18px 20px;background:#fff;box-shadow:var(--shadow);border-top:3px solid var(--verde);transition:box-shadow .15s">
+        <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:40px;height:40px;border-radius:10px;background:var(--verde-soft);display:flex;align-items:center;justify-content:center;font-size:20px">📚</div>
+            <div>
+                <div style="font-size:14px;font-weight:700;color:var(--ink)">Caso Académico</div>
+                <div style="font-size:11.5px;color:var(--muted);margin-top:2px">Inasistencias, evidencias, deserción, plan de mejoramiento</div>
+            </div>
+        </div>
     </div>
-    <div style="padding:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
-        <div class="alert alert-info" style="margin:0">1. Caso o pendiente</div>
-        <div class="alert alert-info" style="margin:0">2. Accion o justificacion</div>
-        <div class="alert alert-warning" style="margin:0">3. Evidencias y firmas</div>
-        <div class="alert alert-success" style="margin:0">4. Primera o segunda instancia</div>
-        <div class="alert alert-info" style="margin:0">5. Expediente listo para comite</div>
+    <div id="tab-disciplinario" onclick="cambiarTab('disciplinario')" style="cursor:pointer;border-radius:var(--radius);padding:18px 20px;background:#fff;box-shadow:var(--shadow);border-top:3px solid #dde8e1;transition:box-shadow .15s">
+        <div style="display:flex;align-items:center;gap:12px">
+            <div style="width:40px;height:40px;border-radius:10px;background:var(--naranja-soft);display:flex;align-items:center;justify-content:center;font-size:20px">⚠️</div>
+            <div>
+                <div style="font-size:14px;font-weight:700;color:var(--ink)">Caso Disciplinario</div>
+                <div style="font-size:11.5px;color:var(--muted);margin-top:2px">Faltas de convivencia, conductas, compromisos disciplinarios</div>
+            </div>
+        </div>
     </div>
 </div>
 
-<div class="case-shell">
-    <div class="case-nav">
-        <a href="#datos">1. Datos del caso</a>
-        <a href="#accion">2. Accion o justificacion</a>
-        <a href="#instancia">3. Instancia y acta</a>
-        <a href="#notificacion">4. Soportes y notificacion</a>
-        <a href="#guardar">5. Guardar</a>
-    </div>
-
-<form method="POST" enctype="multipart/form-data" onsubmit="capturarFirmasAsistente()">
-    <div class="table-card case-section" id="datos" style="margin-bottom:18px">
-        <div class="table-card-header">
-            <div>
-                <div class="table-card-title">1. Datos del caso</div>
-                <div class="section-kicker">Identifique al aprendiz, el tipo de situacion y el momento del proceso.</div>
-            </div>
+<!-- ══════════════════════════════════════════════
+     FORMULARIO ACADÉMICO
+════════════════════════════════════════════════ -->
+<div id="form-academico">
+    <div class="table-card" style="margin-bottom:18px">
+        <div class="table-card-header" style="background:var(--verde-soft);border-bottom:0.5px solid var(--verde-line)">
+            <div class="table-card-title" style="color:var(--verde-dark)">📚 Ruta del caso académico</div>
         </div>
-        <div class="professional-card-body">
-            <div class="form-grid">
-                <div class="form-group full">
-                    <label>Aprendiz *</label>
-                    <select name="aprendiz_id" id="aprendiz_id" required onchange="llenarCorreoAprendiz()">
-                        <option value="">-- Seleccionar aprendiz --</option>
-                        <?php foreach ($aprendices as $ap): ?>
-                        <option value="<?= $ap['id'] ?>" data-email="<?= sanitize($ap['email'] ?? '') ?>"><?= sanitize($ap['nombre']) ?> - <?= sanitize($ap['documento']) ?> / Ficha <?= sanitize($ap['numero_ficha']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Tipo de caso</label>
-                    <select name="tipo_caso">
-                        <option>Academico</option><option>Inasistencia</option><option>Disciplinario</option><option>Desercion</option><option>Otro</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Momento del proceso</label>
-                    <select name="momento_proceso" id="momento_proceso" onchange="sugerirPlan()">
-                        <option>Durante el resultado</option>
-                        <option>Resultado finalizado</option>
-                        <option>Caso grave o excepcional</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Estado inicial</label>
-                    <select name="estado_pendiente">
-                        <option>Pendiente</option><option>En proceso</option><option>No aprobado</option><option>Listo para comite</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Instructor responsable *</label>
-                    <select name="instructor_id" required><option value="">-- Seleccionar --</option><?php foreach ($instructores as $i): ?><option value="<?= $i['id'] ?>"><?= sanitize($i['nombre']) ?></option><?php endforeach; ?></select>
-                </div>
-                <div class="form-group">
-                    <label>Competencia *</label>
-                    <select name="competencia_id" id="competencia_id" required onchange="cargarResultadosAsistente(this.value)">
-                        <option value="">-- Seleccionar --</option>
-                        <?php foreach ($competencias as $c): ?><option value="<?= $c['id'] ?>"><?= sanitize($c['nombre']) ?> - <?= sanitize($c['programa']) ?></option><?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Resultado</label>
-                    <select name="resultado_id" id="resultado_id"><option value="">-- Primero seleccione competencia --</option></select>
-                </div>
-                <div class="form-group">
-                    <label>Trimestre</label>
-                    <select name="trimestre_ocurrencia"><?php for ($t=1;$t<=8;$t++): ?><option value="<?= $t ?>"><?= $t ?> Trimestre</option><?php endfor; ?></select>
-                </div>
-                <div class="form-group">
-                    <label>Fecha registro</label>
-                    <input type="date" name="fecha_registro" value="<?= date('Y-m-d') ?>">
-                </div>
-                <div class="form-group full">
-                    <label>Motivo del caso *</label>
-                    <textarea name="motivo" required placeholder="Explique que ocurrio: evidencia perdida, inasistencias, incumplimiento, caso disciplinario, etc."></textarea>
-                </div>
-                <div class="form-group full">
-                    <label>Observaciones</label>
-                    <textarea name="observaciones_pendiente" placeholder="Contexto adicional para coordinacion o comite."></textarea>
-                </div>
-                <div class="form-group full" style="display:flex;align-items:center;gap:8px">
-                    <input type="checkbox" name="debe_repetir" id="debe_repetir" value="1" style="width:auto">
-                    <label for="debe_repetir" style="text-transform:none">Debe repetir competencia</label>
-                </div>
-            </div>
+        <div style="padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
+            <div class="alert alert-info" style="margin:0;font-size:12px">1. Datos del pendiente</div>
+            <div class="alert alert-info" style="margin:0;font-size:12px">2. Acción remedial</div>
+            <div class="alert alert-warning" style="margin:0;font-size:12px">3. Evidencias y firmas</div>
+            <div class="alert alert-success" style="margin:0;font-size:12px">4. Plan de mejoramiento</div>
+            <div class="alert alert-info" style="margin:0;font-size:12px">5. Expediente → Comité</div>
         </div>
     </div>
 
-    <div class="table-card case-section" id="accion" style="margin-bottom:18px">
-        <div class="table-card-header">
-            <div>
-                <div class="table-card-title">2. Accion remedial o justificacion</div>
-                <div class="section-kicker">Durante el resultado se documentan las estrategias metodologicas; si no aplican, debe quedar justificacion.</div>
-            </div>
+    <div class="case-shell">
+        <div class="case-nav">
+            <a href="#acad-datos">1. Datos del caso</a>
+            <a href="#acad-accion">2. Acción remedial</a>
+            <a href="#acad-instancia">3. Plan de mejoramiento</a>
+            <a href="#acad-soportes">4. Soportes y notificación</a>
+            <a href="#acad-guardar">5. Guardar</a>
         </div>
-        <div class="professional-card-body">
-            <div class="form-grid">
-                <div class="form-group">
-                    <label>Hubo accion remedial?</label>
-                    <select name="hubo_accion" id="hubo_accion" onchange="toggleAccion()">
-                        <option>Si</option><option>No</option>
-                    </select>
-                </div>
-                <div class="form-group accion-si">
-                    <label>Tipo de accion</label>
-                    <select name="tipo_accion"><option>Refuerzo presencial</option><option>Tutoria individual</option><option>Taller compensatorio</option><option>Trabajo practico</option><option>Evaluacion oral</option><option>Otro</option></select>
-                </div>
-                <div class="form-group">
-                    <label>Fecha accion / registro</label>
-                    <input type="date" name="fecha_accion" value="<?= date('Y-m-d') ?>">
-                </div>
-                <div class="form-group">
-                    <label>Resultado</label>
-                    <select name="resultado_accion" id="resultado_accion" onchange="sugerirPlan()"><option>En proceso</option><option>Aprobado</option><option>No aprobado</option></select>
-                </div>
-                <div class="form-group full accion-si">
-                    <label>Descripcion de la accion remedial</label>
-                    <textarea name="descripcion_accion" placeholder="Detalle la estrategia metodologica usada y la oportunidad dada al aprendiz."></textarea>
-                </div>
-                <div class="form-group full accion-no" style="display:none">
-                    <label>Justificacion por no realizar accion remedial</label>
-                    <textarea name="justificacion_sin_accion" placeholder="Ejemplo: el aprendiz no asistio a clase; se adjunta control de inasistencia."></textarea>
-                </div>
-                <div class="form-group full">
-                    <label>Observaciones de la accion</label>
-                    <textarea name="observaciones_accion" placeholder="Compromisos, fecha de citacion, soporte de inasistencia o detalle para coordinacion."></textarea>
-                </div>
-                <div class="form-group full">
-                    <label>Soporte de accion o justificacion</label>
-                    <input type="file" name="soporte_accion" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xls,.xlsx">
-                </div>
-                <div class="form-group full" style="display:flex;align-items:center;gap:8px">
-                    <input type="checkbox" name="novedad_aprobacion" id="novedad_aprobacion" value="1" style="width:auto">
-                    <label for="novedad_aprobacion" style="text-transform:none">Instructor registro novedad de aprobacion</label>
-                </div>
-            </div>
 
-            <div style="margin-top:18px;border-top:1px solid var(--gris-border);padding-top:16px">
-                <div class="table-card-title" style="margin-bottom:12px">Firmas de accion / justificacion</div>
-                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+        <form method="POST" enctype="multipart/form-data" onsubmit="capturarFirmasAsistente()">
+            <?= csrfField() ?>
+            <input type="hidden" name="tipo_caso" value="Academico">
+
+            <!-- PASO 1 — Datos -->
+            <div class="table-card case-section" id="acad-datos" style="margin-bottom:18px">
+                <div class="table-card-header">
                     <div>
-                        <label>Firma instructor</label>
-                        <input type="hidden" name="firma_accion_instructor" id="firma_accion_instructor">
-                        <div class="signature-pad-wrap"><canvas id="padAccionInstructor" width="500" height="180"></canvas><div class="signature-placeholder" id="phAccionInstructor">Firmar aqui</div></div>
-                        <div class="signature-actions"><button type="button" class="btn btn-sm btn-secondary" onclick="clearPadAsistente('padAccionInstructor','firma_accion_instructor','phAccionInstructor')">Limpiar</button></div>
+                        <div class="table-card-title">1. Datos del caso académico</div>
+                        <div class="section-kicker">Identifique al aprendiz, competencia y situación académica.</div>
                     </div>
+                </div>
+                <div class="professional-card-body">
+                    <div class="form-grid">
+                        <div class="form-group full">
+                            <label>Aprendiz *</label>
+                            <select name="aprendiz_id" id="aprendiz_id_acad" required onchange="llenarCorreoAprendizAcad()">
+                                <option value="">-- Seleccionar aprendiz --</option>
+                                <?php foreach ($aprendices as $ap): ?>
+                                <option value="<?= $ap['id'] ?>" data-email="<?= sanitize($ap['email'] ?? '') ?>"><?= sanitize($ap['nombre']) ?> — <?= sanitize($ap['documento']) ?> / Ficha <?= sanitize($ap['numero_ficha']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Tipo de caso académico</label>
+                            <select name="tipo_caso" id="tipo_caso_acad">
+                                <option value="Academico">Académico</option>
+                                <option value="Inasistencia">Inasistencia</option>
+                                <option value="Desercion">Deserción</option>
+                                <option value="Otro">Otro académico</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Momento del proceso</label>
+                            <select name="momento_proceso" id="momento_proceso_acad" onchange="sugerirPlanAcad()">
+                                <option>Durante el resultado</option>
+                                <option>Resultado finalizado</option>
+                                <option>Caso grave o excepcional</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Estado inicial</label>
+                            <select name="estado_pendiente">
+                                <option>Pendiente</option><option>En proceso</option><option>No aprobado</option><option>Listo para comite</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Instructor responsable *</label>
+                            <select name="instructor_id" required>
+                                <option value="">-- Seleccionar --</option>
+                                <?php foreach ($instructores as $i): ?>
+                                <option value="<?= $i['id'] ?>"><?= sanitize($i['nombre']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Competencia *</label>
+                            <select name="competencia_id" id="competencia_id_acad" required onchange="cargarResultadosAsistente(this.value,'resultado_id_acad')">
+                                <option value="">-- Seleccionar --</option>
+                                <?php foreach ($competencias as $c): ?>
+                                <option value="<?= $c['id'] ?>"><?= sanitize($c['nombre']) ?> — <?= sanitize($c['programa']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Resultado de aprendizaje</label>
+                            <select name="resultado_id" id="resultado_id_acad"><option value="">-- Primero seleccione competencia --</option></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Trimestre</label>
+                            <select name="trimestre_ocurrencia"><?php for ($t=1;$t<=8;$t++): ?><option value="<?= $t ?>"><?= $t ?> Trimestre</option><?php endfor; ?></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Fecha de registro</label>
+                            <input type="date" name="fecha_registro" value="<?= date('Y-m-d') ?>">
+                        </div>
+                        <div class="form-group full">
+                            <label>Motivo del caso *</label>
+                            <textarea name="motivo" required placeholder="Explique qué ocurrió: evidencia perdida, inasistencias, incumplimiento de compromisos, etc."></textarea>
+                        </div>
+                        <div class="form-group full">
+                            <label>Observaciones adicionales</label>
+                            <textarea name="observaciones_pendiente" placeholder="Contexto adicional para coordinación o comité."></textarea>
+                        </div>
+                        <div class="form-group full" style="display:flex;align-items:center;gap:8px">
+                            <input type="checkbox" name="debe_repetir" id="debe_repetir" value="1" style="width:auto">
+                            <label for="debe_repetir" style="text-transform:none">El aprendiz debe repetir la competencia</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PASO 2 — Acción remedial -->
+            <div class="table-card case-section" id="acad-accion" style="margin-bottom:18px">
+                <div class="table-card-header">
                     <div>
-                        <label>Firma aprendiz</label>
-                        <input type="hidden" name="firma_accion_aprendiz" id="firma_accion_aprendiz">
-                        <div class="signature-pad-wrap"><canvas id="padAccionAprendiz" width="500" height="180"></canvas><div class="signature-placeholder" id="phAccionAprendiz">Firmar aqui</div></div>
-                        <div class="signature-actions"><button type="button" class="btn btn-sm btn-secondary" onclick="clearPadAsistente('padAccionAprendiz','firma_accion_aprendiz','phAccionAprendiz')">Limpiar</button></div>
+                        <div class="table-card-title">2. Acción remedial</div>
+                        <div class="section-kicker">Documente la estrategia metodológica aplicada. Si no aplica, deje la justificación.</div>
+                    </div>
+                </div>
+                <div class="professional-card-body">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>¿Hubo acción remedial?</label>
+                            <select name="hubo_accion" id="hubo_accion_acad" onchange="toggleAccionAcad()">
+                                <option>Si</option><option>No</option>
+                            </select>
+                        </div>
+                        <div class="form-group accion-si-acad">
+                            <label>Tipo de acción</label>
+                            <select name="tipo_accion"><option>Refuerzo presencial</option><option>Tutoría individual</option><option>Taller compensatorio</option><option>Trabajo práctico</option><option>Evaluación oral</option><option>Otro</option></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Fecha de la acción</label>
+                            <input type="date" name="fecha_accion" value="<?= date('Y-m-d') ?>">
+                        </div>
+                        <div class="form-group">
+                            <label>Resultado</label>
+                            <select name="resultado_accion" id="resultado_accion_acad" onchange="sugerirPlanAcad()">
+                                <option>En proceso</option><option>Aprobado</option><option>No aprobado</option>
+                            </select>
+                        </div>
+                        <div class="form-group full accion-si-acad">
+                            <label>Descripción de la acción remedial</label>
+                            <textarea name="descripcion_accion" placeholder="Detalle la estrategia metodológica y la oportunidad dada al aprendiz."></textarea>
+                        </div>
+                        <div class="form-group full accion-no-acad" style="display:none">
+                            <label>Justificación por no realizar acción remedial</label>
+                            <textarea name="justificacion_sin_accion" placeholder="Ej: el aprendiz no asistió a clase; se adjunta control de inasistencia."></textarea>
+                        </div>
+                        <div class="form-group full">
+                            <label>Observaciones</label>
+                            <textarea name="observaciones_accion" placeholder="Compromisos, fecha de citación, soporte de inasistencia o detalle para coordinación."></textarea>
+                        </div>
+                        <div class="form-group full">
+                            <label>Soporte de acción o justificación</label>
+                            <input type="file" name="soporte_accion" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xls,.xlsx">
+                        </div>
+                        <div class="form-group full" style="display:flex;align-items:center;gap:8px">
+                            <input type="checkbox" name="novedad_aprobacion" id="novedad_aprobacion" value="1" style="width:auto">
+                            <label for="novedad_aprobacion" style="text-transform:none">Instructor registró novedad de aprobación</label>
+                        </div>
+                    </div>
+                    <div style="margin-top:18px;border-top:0.5px solid var(--line);padding-top:16px">
+                        <div class="table-card-title" style="margin-bottom:12px">Firmas de la acción remedial</div>
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+                            <div>
+                                <label>Firma instructor</label>
+                                <input type="hidden" name="firma_accion_instructor" id="firma_accion_instructor">
+                                <div class="signature-pad-wrap"><canvas id="padAccionInstructor" width="500" height="180"></canvas><div class="signature-placeholder" id="phAccionInstructor">Firmar aquí</div></div>
+                                <div class="signature-actions"><button type="button" class="btn btn-sm btn-secondary" onclick="clearPadAsistente('padAccionInstructor','firma_accion_instructor','phAccionInstructor')">Limpiar</button></div>
+                            </div>
+                            <div>
+                                <label>Firma aprendiz</label>
+                                <input type="hidden" name="firma_accion_aprendiz" id="firma_accion_aprendiz">
+                                <div class="signature-pad-wrap"><canvas id="padAccionAprendiz" width="500" height="180"></canvas><div class="signature-placeholder" id="phAccionAprendiz">Firmar aquí</div></div>
+                                <div class="signature-actions"><button type="button" class="btn btn-sm btn-secondary" onclick="clearPadAsistente('padAccionAprendiz','firma_accion_aprendiz','phAccionAprendiz')">Limpiar</button></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
 
-    <div class="table-card case-section" id="instancia" style="margin-bottom:18px">
-        <div class="table-card-header">
-            <div>
-                <div class="table-card-title">3. Primera o segunda instancia</div>
-                <div class="section-kicker">Cuando el resultado finalizo y queda no aprobado, registre el plan de mejoramiento y su acta.</div>
-            </div>
-        </div>
-        <div class="professional-card-body">
-            <div class="alert alert-warning">Use esta seccion cuando el resultado ya finalizo y debe quedar acta de plan de mejoramiento. Maximo dos instancias antes de comite, salvo caso grave.</div>
-            <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-                <input type="checkbox" name="crear_plan" id="crear_plan" value="1" style="width:auto" onchange="togglePlan()">
-                <label for="crear_plan" style="text-transform:none">Crear plan de mejoramiento en este registro</label>
-            </div>
-            <div id="planBox" style="display:none">
-                <div class="form-grid">
-                    <div class="form-group"><label>Instancia</label><select name="instancia"><option>Primera instancia</option><option>Segunda instancia</option></select></div>
-                    <div class="form-group"><label>Fecha concertacion</label><input type="date" name="fecha_concertacion" value="<?= date('Y-m-d') ?>"></div>
-                    <div class="form-group"><label>Coordinador</label><select name="coordinador_id"><option value="">-- Seleccionar --</option><?php foreach ($coordinadores as $c): ?><option value="<?= $c['id'] ?>"><?= sanitize($c['nombre']) ?></option><?php endforeach; ?></select></div>
-                    <div class="form-group"><label>Estado plan</label><select name="estado_plan"><option>Abierto</option><option>Cumplido</option><option>No cumplido</option><option>Cerrado</option></select></div>
-                    <div class="form-group full" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
-                        <label style="text-transform:none"><input type="checkbox" name="evidencia_conocimiento" style="width:auto"> Evidencia de conocimiento</label>
-                        <label style="text-transform:none"><input type="checkbox" name="evidencia_producto" style="width:auto"> Evidencia de producto</label>
-                        <label style="text-transform:none"><input type="checkbox" name="evidencia_desempeno" style="width:auto"> Evidencia de desempeno</label>
-                    </div>
-                    <div class="form-group full"><label>Plan concertado</label><textarea name="descripcion_plan" placeholder="Orientaciones, estrategias pedagogicas, evidencias requeridas y fechas."></textarea></div>
-                    <div class="form-group full"><label>Compromisos</label><textarea name="compromisos_plan" placeholder="Compromisos del aprendiz, instructor y coordinacion."></textarea></div>
-                    <div class="form-group full"><label>Acta o soporte del plan</label><input type="file" name="soporte_plan" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"></div>
-                </div>
-                <div style="margin-top:18px;border-top:1px solid var(--gris-border);padding-top:16px">
-                    <div class="table-card-title" style="margin-bottom:12px">Firmas del plan</div>
-                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px">
-                        <div><label>Instructor</label><input type="hidden" name="firma_plan_instructor" id="firma_plan_instructor"><div class="signature-pad-wrap"><canvas id="padPlanInstructor" width="500" height="180"></canvas><div class="signature-placeholder" id="phPlanInstructor">Firmar aqui</div></div><div class="signature-actions"><button type="button" class="btn btn-sm btn-secondary" onclick="clearPadAsistente('padPlanInstructor','firma_plan_instructor','phPlanInstructor')">Limpiar</button></div></div>
-                        <div><label>Coordinador</label><input type="hidden" name="firma_plan_coordinador" id="firma_plan_coordinador"><div class="signature-pad-wrap"><canvas id="padPlanCoordinador" width="500" height="180"></canvas><div class="signature-placeholder" id="phPlanCoordinador">Firmar aqui</div></div><div class="signature-actions"><button type="button" class="btn btn-sm btn-secondary" onclick="clearPadAsistente('padPlanCoordinador','firma_plan_coordinador','phPlanCoordinador')">Limpiar</button></div></div>
-                        <div><label>Aprendiz</label><input type="hidden" name="firma_plan_aprendiz" id="firma_plan_aprendiz"><div class="signature-pad-wrap"><canvas id="padPlanAprendiz" width="500" height="180"></canvas><div class="signature-placeholder" id="phPlanAprendiz">Firmar aqui</div></div><div class="signature-actions"><button type="button" class="btn btn-sm btn-secondary" onclick="clearPadAsistente('padPlanAprendiz','firma_plan_aprendiz','phPlanAprendiz')">Limpiar</button></div></div>
+            <!-- PASO 3 — Plan de mejoramiento -->
+            <div class="table-card case-section" id="acad-instancia" style="margin-bottom:18px">
+                <div class="table-card-header">
+                    <div>
+                        <div class="table-card-title">3. Plan de mejoramiento (instancia)</div>
+                        <div class="section-kicker">Cuando el resultado finalizó y queda no aprobado, registre el acta del plan de mejoramiento.</div>
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="table-card case-section" id="notificacion" style="margin-bottom:18px">
-        <div class="table-card-header">
-            <div>
-                <div class="table-card-title">4. Soporte adicional y notificacion</div>
-                <div class="section-kicker">Adjunte evidencias complementarias y deje constancia de que el aprendiz fue informado.</div>
-            </div>
-        </div>
-        <div class="professional-card-body">
-            <div class="form-grid">
-                <div class="form-group"><label>Tipo de soporte adicional</label><select name="tipo_soporte_general"><option>Control de inasistencia</option><option>Evidencia academica</option><option>Soporte disciplinario</option><option>Acta</option><option>Otro</option></select></div>
-                <div class="form-group"><label>Archivo adicional</label><input type="file" name="soporte_general" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xls,.xlsx"></div>
-                <div class="form-group full"><label>Descripcion soporte adicional</label><textarea name="descripcion_soporte_general"></textarea></div>
-                <div class="form-group full" style="display:flex;align-items:center;gap:8px">
-                    <input type="checkbox" name="registrar_notificacion" id="registrar_notificacion" value="1" style="width:auto" checked>
-                    <label for="registrar_notificacion" style="text-transform:none">Registrar notificacion al aprendiz como evidencia</label>
+                <div class="professional-card-body">
+                    <div class="alert alert-warning">Use esta sección cuando el resultado ya finalizó. Máximo dos instancias antes de comité, salvo caso grave.</div>
+                    <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+                        <input type="checkbox" name="crear_plan" id="crear_plan" value="1" style="width:auto" onchange="togglePlan()">
+                        <label for="crear_plan" style="text-transform:none">Crear plan de mejoramiento en este registro</label>
+                    </div>
+                    <div id="planBox" style="display:none">
+                        <div class="form-grid">
+                            <div class="form-group"><label>Instancia</label><select name="instancia"><option>Primera instancia</option><option>Segunda instancia</option></select></div>
+                            <div class="form-group"><label>Fecha concertación</label><input type="date" name="fecha_concertacion" value="<?= date('Y-m-d') ?>"></div>
+                            <div class="form-group"><label>Coordinador</label><select name="coordinador_id"><option value="">-- Seleccionar --</option><?php foreach ($coordinadores as $c): ?><option value="<?= $c['id'] ?>"><?= sanitize($c['nombre']) ?></option><?php endforeach; ?></select></div>
+                            <div class="form-group"><label>Estado plan</label><select name="estado_plan"><option>Abierto</option><option>Cumplido</option><option>No cumplido</option><option>Cerrado</option></select></div>
+                            <div class="form-group full" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+                                <label style="text-transform:none"><input type="checkbox" name="evidencia_conocimiento" style="width:auto"> Evidencia de conocimiento</label>
+                                <label style="text-transform:none"><input type="checkbox" name="evidencia_producto" style="width:auto"> Evidencia de producto</label>
+                                <label style="text-transform:none"><input type="checkbox" name="evidencia_desempeno" style="width:auto"> Evidencia de desempeño</label>
+                            </div>
+                            <div class="form-group full"><label>Plan concertado</label><textarea name="descripcion_plan" placeholder="Orientaciones, estrategias pedagógicas, evidencias requeridas y fechas."></textarea></div>
+                            <div class="form-group full"><label>Compromisos</label><textarea name="compromisos_plan" placeholder="Compromisos del aprendiz, instructor y coordinación."></textarea></div>
+                            <div class="form-group full"><label>Acta o soporte del plan</label><input type="file" name="soporte_plan" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"></div>
+                        </div>
+                        <div style="margin-top:18px;border-top:0.5px solid var(--line);padding-top:16px">
+                            <div class="table-card-title" style="margin-bottom:12px">Firmas del plan</div>
+                            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px">
+                                <div><label>Instructor</label><input type="hidden" name="firma_plan_instructor" id="firma_plan_instructor"><div class="signature-pad-wrap"><canvas id="padPlanInstructor" width="500" height="180"></canvas><div class="signature-placeholder" id="phPlanInstructor">Firmar aquí</div></div><div class="signature-actions"><button type="button" class="btn btn-sm btn-secondary" onclick="clearPadAsistente('padPlanInstructor','firma_plan_instructor','phPlanInstructor')">Limpiar</button></div></div>
+                                <div><label>Coordinador</label><input type="hidden" name="firma_plan_coordinador" id="firma_plan_coordinador"><div class="signature-pad-wrap"><canvas id="padPlanCoordinador" width="500" height="180"></canvas><div class="signature-placeholder" id="phPlanCoordinador">Firmar aquí</div></div><div class="signature-actions"><button type="button" class="btn btn-sm btn-secondary" onclick="clearPadAsistente('padPlanCoordinador','firma_plan_coordinador','phPlanCoordinador')">Limpiar</button></div></div>
+                                <div><label>Aprendiz</label><input type="hidden" name="firma_plan_aprendiz" id="firma_plan_aprendiz"><div class="signature-pad-wrap"><canvas id="padPlanAprendiz" width="500" height="180"></canvas><div class="signature-placeholder" id="phPlanAprendiz">Firmar aquí</div></div><div class="signature-actions"><button type="button" class="btn btn-sm btn-secondary" onclick="clearPadAsistente('padPlanAprendiz','firma_plan_aprendiz','phPlanAprendiz')">Limpiar</button></div></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="form-group"><label>Correo aprendiz</label><input type="email" name="correo_destino" id="correo_destino"></div>
-                <div class="form-group"><label>Asunto</label><input type="text" name="asunto_notificacion" value="Concertacion de seguimiento academico"></div>
-                <div class="form-group full"><label>Mensaje notificacion</label><textarea name="mensaje_notificacion" placeholder="Indique fecha, hora, evidencia, lugar o compromiso informado al aprendiz."></textarea></div>
             </div>
+
+            <!-- PASO 4 — Soportes y notificación -->
+            <div class="table-card case-section" id="acad-soportes" style="margin-bottom:18px">
+                <div class="table-card-header">
+                    <div>
+                        <div class="table-card-title">4. Soportes y notificación</div>
+                        <div class="section-kicker">Adjunte evidencias complementarias y registre que el aprendiz fue informado.</div>
+                    </div>
+                </div>
+                <div class="professional-card-body">
+                    <div class="form-grid">
+                        <div class="form-group"><label>Tipo de soporte adicional</label><select name="tipo_soporte_general"><option>Control de inasistencia</option><option>Evidencia académica</option><option>Acta</option><option>Otro</option></select></div>
+                        <div class="form-group"><label>Archivo adicional</label><input type="file" name="soporte_general" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xls,.xlsx"></div>
+                        <div class="form-group full"><label>Descripción soporte adicional</label><textarea name="descripcion_soporte_general"></textarea></div>
+                        <div class="form-group full" style="display:flex;align-items:center;gap:8px">
+                            <input type="checkbox" name="registrar_notificacion" id="registrar_notificacion" value="1" style="width:auto" checked>
+                            <label for="registrar_notificacion" style="text-transform:none">Registrar notificación al aprendiz</label>
+                        </div>
+                        <div class="form-group"><label>Correo del aprendiz</label><input type="email" name="correo_destino" id="correo_destino_acad"></div>
+                        <div class="form-group"><label>Asunto</label><input type="text" name="asunto_notificacion" value="Concertación de seguimiento académico"></div>
+                        <div class="form-group full"><label>Mensaje de notificación</label><textarea name="mensaje_notificacion" placeholder="Indique fecha, hora, evidencia, lugar o compromiso informado al aprendiz."></textarea></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="acad-guardar" style="display:flex;justify-content:flex-end;gap:10px;margin-bottom:28px">
+                <a href="expediente.php" class="btn btn-secondary">Cancelar</a>
+                <button type="submit" class="btn btn-primary">Guardar caso académico</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     FORMULARIO DISCIPLINARIO
+════════════════════════════════════════════════ -->
+<div id="form-disciplinario" style="display:none">
+    <div class="table-card" style="margin-bottom:18px">
+        <div class="table-card-header" style="background:var(--naranja-soft);border-bottom:0.5px solid var(--naranja-line)">
+            <div class="table-card-title" style="color:#7a5500">⚠️ Ruta del caso disciplinario</div>
+        </div>
+        <div style="padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
+            <div class="alert alert-warning" style="margin:0;font-size:12px">1. Datos de la falta</div>
+            <div class="alert alert-warning" style="margin:0;font-size:12px">2. Medida o descargo</div>
+            <div class="alert alert-warning" style="margin:0;font-size:12px">3. Compromisos y firmas</div>
+            <div class="alert alert-info" style="margin:0;font-size:12px">4. Soportes y notificación</div>
+            <div class="alert alert-info" style="margin:0;font-size:12px">5. Expediente → Comité</div>
         </div>
     </div>
 
-    <div id="guardar" style="display:flex;justify-content:flex-end;gap:10px;margin-bottom:28px">
-        <a href="expediente.php" class="btn btn-secondary">Cancelar</a>
-        <button type="submit" class="btn btn-primary">Guardar caso completo</button>
+    <div class="case-shell">
+        <div class="case-nav">
+            <a href="#disc-datos">1. Datos de la falta</a>
+            <a href="#disc-medida">2. Medida o descargo</a>
+            <a href="#disc-compromisos">3. Compromisos y firmas</a>
+            <a href="#disc-soportes">4. Soportes y notificación</a>
+            <a href="#disc-guardar">5. Guardar</a>
+        </div>
+
+        <form method="POST" enctype="multipart/form-data" onsubmit="capturarFirmasAsistente()">
+            <?= csrfField() ?>
+
+            <!-- PASO 1 — Datos de la falta -->
+            <div class="table-card case-section" id="disc-datos" style="margin-bottom:18px">
+                <div class="table-card-header" style="border-left:3px solid var(--naranja)">
+                    <div>
+                        <div class="table-card-title">1. Datos de la falta disciplinaria</div>
+                        <div class="section-kicker">Identifique al aprendiz, el tipo de falta y las circunstancias.</div>
+                    </div>
+                </div>
+                <div class="professional-card-body">
+                    <div class="form-grid">
+                        <div class="form-group full">
+                            <label>Aprendiz *</label>
+                            <select name="aprendiz_id" id="aprendiz_id_disc" required onchange="llenarCorreoAprendizDisc()">
+                                <option value="">-- Seleccionar aprendiz --</option>
+                                <?php foreach ($aprendices as $ap): ?>
+                                <option value="<?= $ap['id'] ?>" data-email="<?= sanitize($ap['email'] ?? '') ?>"><?= sanitize($ap['nombre']) ?> — <?= sanitize($ap['documento']) ?> / Ficha <?= sanitize($ap['numero_ficha']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Tipo de falta</label>
+                            <select name="tipo_caso">
+                                <option value="Disciplinario">Disciplinario general</option>
+                                <option value="Convivencia">Convivencia</option>
+                                <option value="Falta disciplinaria">Falta disciplinaria grave</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Gravedad</label>
+                            <select name="momento_proceso">
+                                <option value="Falta leve">Falta leve</option>
+                                <option value="Falta grave">Falta grave</option>
+                                <option value="Caso grave o excepcional">Caso excepcional</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Estado inicial</label>
+                            <select name="estado_pendiente">
+                                <option>Pendiente</option><option>En proceso</option><option>Listo para comite</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Instructor / Responsable *</label>
+                            <select name="instructor_id" required>
+                                <option value="">-- Seleccionar --</option>
+                                <?php foreach ($instructores as $i): ?>
+                                <option value="<?= $i['id'] ?>"><?= sanitize($i['nombre']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Trimestre</label>
+                            <select name="trimestre_ocurrencia"><?php for ($t=1;$t<=8;$t++): ?><option value="<?= $t ?>"><?= $t ?> Trimestre</option><?php endfor; ?></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Fecha de registro</label>
+                            <input type="date" name="fecha_registro" value="<?= date('Y-m-d') ?>">
+                        </div>
+                        <!-- Campos académicos ocultos (requeridos por la BD) -->
+                        <input type="hidden" name="competencia_id" value="">
+                        <input type="hidden" name="resultado_id" value="">
+                        <div class="form-group full">
+                            <label>Descripción de la falta *</label>
+                            <textarea name="motivo" required placeholder="Describa detalladamente la falta: qué ocurrió, cuándo, dónde y quiénes estuvieron involucrados."></textarea>
+                        </div>
+                        <div class="form-group full">
+                            <label>Observaciones adicionales</label>
+                            <textarea name="observaciones_pendiente" placeholder="Antecedentes, testigos, contexto relevante para coordinación o comité."></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PASO 2 — Medida o descargo -->
+            <div class="table-card case-section" id="disc-medida" style="margin-bottom:18px">
+                <div class="table-card-header" style="border-left:3px solid var(--naranja)">
+                    <div>
+                        <div class="table-card-title">2. Medida adoptada o descargo</div>
+                        <div class="section-kicker">Registre la medida tomada o el descargo presentado por el aprendiz.</div>
+                    </div>
+                </div>
+                <div class="professional-card-body">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>¿Se tomó medida o descargo?</label>
+                            <select name="hubo_accion" id="hubo_accion_disc" onchange="toggleAccionDisc()">
+                                <option value="Si">Sí</option><option value="No">No (pendiente)</option>
+                            </select>
+                        </div>
+                        <div class="form-group accion-si-disc">
+                            <label>Tipo de medida</label>
+                            <select name="tipo_accion">
+                                <option>Llamado de atención verbal</option>
+                                <option>Llamado de atención escrito</option>
+                                <option>Compromiso de convivencia</option>
+                                <option>Descargo del aprendiz</option>
+                                <option>Citación a padres/acudiente</option>
+                                <option>Suspensión temporal</option>
+                                <option>Remisión a comité</option>
+                                <option>Otro</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Fecha de la medida</label>
+                            <input type="date" name="fecha_accion" value="<?= date('Y-m-d') ?>">
+                        </div>
+                        <div class="form-group">
+                            <label>Resultado / Estado</label>
+                            <select name="resultado_accion">
+                                <option>En proceso</option>
+                                <option>Comprometido</option>
+                                <option>Aprobado</option>
+                                <option>No aprobado</option>
+                            </select>
+                        </div>
+                        <div class="form-group full accion-si-disc">
+                            <label>Descripción de la medida o descargo</label>
+                            <textarea name="descripcion_accion" placeholder="Detalle la medida adoptada, el descargo presentado por el aprendiz o el acuerdo alcanzado."></textarea>
+                        </div>
+                        <div class="form-group full accion-no-disc" style="display:none">
+                            <label>Justificación — ¿Por qué no se tomó medida aún?</label>
+                            <textarea name="justificacion_sin_accion" placeholder="Ej: se citó al aprendiz para el día siguiente; pendiente de descargo."></textarea>
+                        </div>
+                        <div class="form-group full">
+                            <label>Observaciones</label>
+                            <textarea name="observaciones_accion" placeholder="Compromisos, fechas de seguimiento o detalles para coordinación."></textarea>
+                        </div>
+                        <div class="form-group full">
+                            <label>Soporte de la medida o descargo</label>
+                            <input type="file" name="soporte_accion" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xls,.xlsx">
+                        </div>
+                        <div class="form-group full" style="display:flex;align-items:center;gap:8px">
+                            <input type="checkbox" name="novedad_aprobacion" value="1" style="width:auto">
+                            <label style="text-transform:none">Se registró novedad formal en el sistema</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PASO 3 — Compromisos y firmas -->
+            <div class="table-card case-section" id="disc-compromisos" style="margin-bottom:18px">
+                <div class="table-card-header" style="border-left:3px solid var(--naranja)">
+                    <div>
+                        <div class="table-card-title">3. Compromisos de convivencia y firmas</div>
+                        <div class="section-kicker">Registre los compromisos adquiridos y las firmas de las partes.</div>
+                    </div>
+                </div>
+                <div class="professional-card-body">
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+                        <div>
+                            <label>Firma instructor / responsable</label>
+                            <input type="hidden" name="firma_accion_instructor" id="firma_accion_instructor_disc">
+                            <div class="signature-pad-wrap"><canvas id="padDiscInstructor" width="500" height="180"></canvas><div class="signature-placeholder" id="phDiscInstructor">Firmar aquí</div></div>
+                            <div class="signature-actions"><button type="button" class="btn btn-sm btn-secondary" onclick="clearPadAsistente('padDiscInstructor','firma_accion_instructor_disc','phDiscInstructor')">Limpiar</button></div>
+                        </div>
+                        <div>
+                            <label>Firma aprendiz</label>
+                            <input type="hidden" name="firma_accion_aprendiz" id="firma_accion_aprendiz_disc">
+                            <div class="signature-pad-wrap"><canvas id="padDiscAprendiz" width="500" height="180"></canvas><div class="signature-placeholder" id="phDiscAprendiz">Firmar aquí</div></div>
+                            <div class="signature-actions"><button type="button" class="btn btn-sm btn-secondary" onclick="clearPadAsistente('padDiscAprendiz','firma_accion_aprendiz_disc','phDiscAprendiz')">Limpiar</button></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PASO 4 — Soportes y notificación -->
+            <div class="table-card case-section" id="disc-soportes" style="margin-bottom:18px">
+                <div class="table-card-header" style="border-left:3px solid var(--naranja)">
+                    <div>
+                        <div class="table-card-title">4. Soportes y notificación</div>
+                        <div class="section-kicker">Adjunte evidencias del caso disciplinario y notifique al aprendiz.</div>
+                    </div>
+                </div>
+                <div class="professional-card-body">
+                    <div class="form-grid">
+                        <div class="form-group"><label>Tipo de soporte</label><select name="tipo_soporte_general"><option>Soporte disciplinario</option><option>Acta de compromiso</option><option>Control de asistencia</option><option>Acta</option><option>Otro</option></select></div>
+                        <div class="form-group"><label>Archivo soporte</label><input type="file" name="soporte_general" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xls,.xlsx"></div>
+                        <div class="form-group full"><label>Descripción del soporte</label><textarea name="descripcion_soporte_general"></textarea></div>
+                        <div class="form-group full" style="display:flex;align-items:center;gap:8px">
+                            <input type="checkbox" name="registrar_notificacion" value="1" style="width:auto" checked>
+                            <label style="text-transform:none">Registrar notificación al aprendiz</label>
+                        </div>
+                        <div class="form-group"><label>Correo del aprendiz</label><input type="email" name="correo_destino" id="correo_destino_disc"></div>
+                        <div class="form-group"><label>Asunto</label><input type="text" name="asunto_notificacion" value="Notificación de caso disciplinario"></div>
+                        <div class="form-group full"><label>Mensaje de notificación</label><textarea name="mensaje_notificacion" placeholder="Indique la falta, la medida adoptada y los compromisos adquiridos."></textarea></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="disc-guardar" style="display:flex;justify-content:flex-end;gap:10px;margin-bottom:28px">
+                <a href="expediente.php" class="btn btn-secondary">Cancelar</a>
+                <button type="submit" class="btn btn-primary" style="background:var(--naranja);border-color:var(--naranja)">Guardar caso disciplinario</button>
+            </div>
+        </form>
     </div>
-</form>
 </div>
 
 <script>
-function cargarResultadosAsistente(competenciaId) {
-    const sel = document.getElementById('resultado_id');
+// ── Tab selector ──
+function cambiarTab(tipo) {
+    const isAcad = tipo === 'academico';
+    document.getElementById('form-academico').style.display    = isAcad ? '' : 'none';
+    document.getElementById('form-disciplinario').style.display = isAcad ? 'none' : '';
+
+    const tabAcad = document.getElementById('tab-academico');
+    const tabDisc = document.getElementById('tab-disciplinario');
+    tabAcad.style.borderTopColor = isAcad ? 'var(--verde)' : '#dde8e1';
+    tabAcad.style.boxShadow      = isAcad ? 'var(--shadow-lg)' : 'var(--shadow)';
+    tabDisc.style.borderTopColor = isAcad ? '#dde8e1' : 'var(--naranja)';
+    tabDisc.style.boxShadow      = isAcad ? 'var(--shadow)' : 'var(--shadow-lg)';
+}
+
+// ── Académico ──
+function cargarResultadosAsistente(competenciaId, selectId) {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
     sel.innerHTML = '<option value="">Cargando...</option>';
-    if (!competenciaId) {
-        sel.innerHTML = '<option value="">-- Primero seleccione competencia --</option>';
-        return;
-    }
+    if (!competenciaId) { sel.innerHTML = '<option value="">-- Primero seleccione competencia --</option>'; return; }
     fetch('<?= BASE_URL ?>/ajax/resultados.php?competencia_id=' + competenciaId)
         .then(r => r.json())
         .then(data => {
-            sel.innerHTML = '<option value="">-- Sin resultado especifico --</option>';
-            data.forEach(r => {
-                const opt = document.createElement('option');
-                opt.value = r.id;
-                opt.textContent = r.nombre;
-                sel.appendChild(opt);
-            });
+            sel.innerHTML = '<option value="">-- Sin resultado específico --</option>';
+            data.forEach(r => { const o = document.createElement('option'); o.value = r.id; o.textContent = r.nombre; sel.appendChild(o); });
         })
-        .catch(() => sel.innerHTML = '<option value="">No se pudieron cargar resultados</option>');
+        .catch(() => sel.innerHTML = '<option value="">No se pudieron cargar</option>');
 }
-function llenarCorreoAprendiz() {
-    const opt = document.getElementById('aprendiz_id').selectedOptions[0];
-    document.getElementById('correo_destino').value = opt ? (opt.dataset.email || '') : '';
+function llenarCorreoAprendizAcad() {
+    const opt = document.getElementById('aprendiz_id_acad').selectedOptions[0];
+    document.getElementById('correo_destino_acad').value = opt ? (opt.dataset.email || '') : '';
 }
-function toggleAccion() {
-    const hubo = document.getElementById('hubo_accion').value === 'Si';
-    document.querySelectorAll('.accion-si').forEach(el => el.style.display = hubo ? '' : 'none');
-    document.querySelectorAll('.accion-no').forEach(el => el.style.display = hubo ? 'none' : '');
+function toggleAccionAcad() {
+    const hubo = document.getElementById('hubo_accion_acad').value === 'Si';
+    document.querySelectorAll('.accion-si-acad').forEach(el => el.style.display = hubo ? '' : 'none');
+    document.querySelectorAll('.accion-no-acad').forEach(el => el.style.display = hubo ? 'none' : '');
 }
 function togglePlan() {
     document.getElementById('planBox').style.display = document.getElementById('crear_plan').checked ? '' : 'none';
 }
-function sugerirPlan() {
-    const momento = document.getElementById('momento_proceso').value;
-    const resultado = document.getElementById('resultado_accion').value;
+function sugerirPlanAcad() {
+    const momento  = document.getElementById('momento_proceso_acad').value;
+    const resultado = document.getElementById('resultado_accion_acad').value;
     if (momento !== 'Durante el resultado' || resultado === 'No aprobado') {
         document.getElementById('crear_plan').checked = true;
         togglePlan();
     }
 }
+
+// ── Disciplinario ──
+function llenarCorreoAprendizDisc() {
+    const opt = document.getElementById('aprendiz_id_disc').selectedOptions[0];
+    document.getElementById('correo_destino_disc').value = opt ? (opt.dataset.email || '') : '';
+}
+function toggleAccionDisc() {
+    const hubo = document.getElementById('hubo_accion_disc').value === 'Si';
+    document.querySelectorAll('.accion-si-disc').forEach(el => el.style.display = hubo ? '' : 'none');
+    document.querySelectorAll('.accion-no-disc').forEach(el => el.style.display = hubo ? 'none' : '');
+}
+
+// ── Firmas compartidas ──
 function initPadAsistente(canvasId, hiddenId, placeholderId) {
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     let drawing = false;
-    ctx.strokeStyle = '#1a2e22';
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#1a2e22'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
     function pos(e) {
         const r = canvas.getBoundingClientRect();
         const src = e.touches ? e.touches[0] : e;
@@ -519,10 +810,8 @@ function clearPadAsistente(canvasId, hiddenId, placeholderId) {
     document.getElementById(placeholderId).style.display = 'flex';
 }
 function isBlank(canvas) {
-    const blank = document.createElement('canvas');
-    blank.width = canvas.width;
-    blank.height = canvas.height;
-    return canvas.toDataURL() === blank.toDataURL();
+    const b = document.createElement('canvas'); b.width=canvas.width; b.height=canvas.height;
+    return canvas.toDataURL() === b.toDataURL();
 }
 function capturarFirmasAsistente() {
     [
@@ -530,18 +819,30 @@ function capturarFirmasAsistente() {
         ['padAccionAprendiz','firma_accion_aprendiz'],
         ['padPlanInstructor','firma_plan_instructor'],
         ['padPlanCoordinador','firma_plan_coordinador'],
-        ['padPlanAprendiz','firma_plan_aprendiz']
-    ].forEach(([canvasId, hiddenId]) => {
-        const canvas = document.getElementById(canvasId);
-        if (canvas && !isBlank(canvas)) document.getElementById(hiddenId).value = canvas.toDataURL();
+        ['padPlanAprendiz','firma_plan_aprendiz'],
+        ['padDiscInstructor','firma_accion_instructor_disc'],
+        ['padDiscAprendiz','firma_accion_aprendiz_disc'],
+    ].forEach(([cId, hId]) => {
+        const canvas = document.getElementById(cId);
+        const hidden = document.getElementById(hId);
+        if (canvas && hidden && !isBlank(canvas)) hidden.value = canvas.toDataURL();
     });
 }
+
 document.addEventListener('DOMContentLoaded', () => {
-    toggleAccion();
+    cambiarTab('academico');
+    toggleAccionAcad();
+    toggleAccionDisc();
     togglePlan();
-    ['AccionInstructor','AccionAprendiz','PlanInstructor','PlanCoordinador','PlanAprendiz'].forEach(name => {
-        initPadAsistente('pad' + name, 'firma_' + name.replace('Accion','accion_').replace('Plan','plan_').replace('Instructor','instructor').replace('Aprendiz','aprendiz').replace('Coordinador','coordinador'), 'ph' + name);
-    });
+    [
+        ['padAccionInstructor','firma_accion_instructor','phAccionInstructor'],
+        ['padAccionAprendiz','firma_accion_aprendiz','phAccionAprendiz'],
+        ['padPlanInstructor','firma_plan_instructor','phPlanInstructor'],
+        ['padPlanCoordinador','firma_plan_coordinador','phPlanCoordinador'],
+        ['padPlanAprendiz','firma_plan_aprendiz','phPlanAprendiz'],
+        ['padDiscInstructor','firma_accion_instructor_disc','phDiscInstructor'],
+        ['padDiscAprendiz','firma_accion_aprendiz_disc','phDiscAprendiz'],
+    ].forEach(args => initPadAsistente(...args));
 });
 </script>
 

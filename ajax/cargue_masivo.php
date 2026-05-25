@@ -36,7 +36,7 @@ $sep = strpos($lines[0], ';') !== false ? ';' : ',';
 $headers = array_map('trim', str_getcsv($lines[0], $sep));
 $headers = array_map('mb_strtolower', $headers);
 
-$inserted = 0; $updated = 0; $errors = [];
+$inserted = 0; $updated = 0; $errors = []; $nuevosParaCorreo = [];
 
 $db->beginTransaction();
 try {
@@ -79,7 +79,18 @@ try {
             } else {
                 $db->prepare("INSERT INTO aprendices (nombres,apellidos,documento,tipo_documento,email,telefono,ficha_id,estado) VALUES(?,?,?,?,?,?,?,?)")
                    ->execute([$nombres,$apellidos,$doc,$tipo_doc,$email,$telefono,$fichaId,$estado]);
+                $nuevoId = (int)$db->lastInsertId();
                 $inserted++;
+                // Guardar para enviar correo individual y resumen
+                $nuevosParaCorreo[] = ['nombre' => $nombres.' '.$apellidos, 'documento' => $doc, 'email' => $email, 'ficha' => $fichaNum];
+                // Correo individual al aprendiz si tiene correo
+                if (!empty($email)) {
+                    require_once __DIR__ . '/../includes/notificaciones.php';
+                    $sfProg = $db->prepare("SELECT p.nombre AS programa FROM fichas f JOIN programas p ON p.id=f.programa_id WHERE f.id=?");
+                    $sfProg->execute([$fichaId]);
+                    $prog = $sfProg->fetchColumn() ?: '';
+                    enviarBienvenidaAprendiz($db, $nuevoId, $nombres, $apellidos, $doc, $email, $fichaNum, $prog, 0);
+                }
             }
 
         } elseif ($tipo === 'instructores') {
@@ -106,6 +117,11 @@ try {
         }
     }
     $db->commit();
+    // Enviar resumen al coordinador
+    if ($inserted > 0) {
+        require_once __DIR__ . '/../includes/notificaciones.php';
+        enviarResumenCargueMasivo(MAIL_COORDINADOR, $inserted, $updated, $nuevosParaCorreo, $errors);
+    }
 } catch (Exception $e) {
     $db->rollBack();
     echo json_encode(['error' => 'Error en base de datos: ' . $e->getMessage()]); exit;
