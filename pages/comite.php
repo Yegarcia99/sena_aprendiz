@@ -4,6 +4,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/expediente_schema.php';
 require_once __DIR__ . '/../includes/notificaciones.php';
 requireLogin();
+denyIfAprendiz(); // Aprendiz no tiene acceso a esta página
 denyIfInstructorOrAprendiz(); // Instructor y Aprendiz no acceden a comité
 $pageTitle = 'Comité Académico';
 $db  = getDB();
@@ -94,7 +95,9 @@ $aprendices = $db->query("
     SELECT a.id, CONCAT(a.apellidos,', ',a.nombres) AS nombre, a.documento,
            COUNT(pa.id) AS pendientes
     FROM aprendices a
-    LEFT JOIN pendientes_aprendices pa ON pa.aprendiz_id=a.id AND pa.estado NOT IN('Superado')
+    JOIN pendientes_aprendices pa ON pa.aprendiz_id=a.id
+        AND pa.estado NOT IN('Superado','Remitido a comité')
+        AND (pa.habilitado_comite=1 OR pa.estado_flujo='Listo para comite')
     WHERE a.estado='Activo'
     GROUP BY a.id
     ORDER BY a.apellidos
@@ -206,7 +209,7 @@ require_once __DIR__ . '/../includes/header.php';
             <input type="hidden" name="edit_id" id="ecId" value="0">
             <div class="modal-body">
                 <div class="alert alert-warning">
-                    Se debe remitir a comité cuando el aprendiz tiene 3 o más pendientes o cuando las acciones remediales no han sido efectivas.
+                    Se muestran aprendices habilitados desde seguimiento academico. Para casos excepcionales, registre primero la habilitacion en Instancias.
                 </div>
                 <div class="form-grid">
                     <div class="form-group full">

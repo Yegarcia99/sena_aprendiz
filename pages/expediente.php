@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/expediente_schema.php';
 requireLogin();
+denyIfAprendiz(); // Aprendiz no tiene acceso a esta página
 
 $pageTitle = 'Expediente del Aprendiz';
 $db = getDB();
@@ -11,71 +12,11 @@ ensureExpedienteSchema($db);
 $msg = $err = '';
 $user = getCurrentUser();
 $aprendizId  = (int)($_GET['aprendiz_id'] ?? $_POST['aprendiz_id'] ?? 0);
-$pendienteId = (int)($_GET['pendiente_id'] ?? $_POST['pendiente_id'] ?? 0);
-
-// Aprendiz: solo puede ver su propio expediente, sin escribir
-if (isAprendiz()) {
-    $miAprendizId = getAprendizId($db);
-    if (!$miAprendizId) {
-        header('Location: ' . BASE_URL . '/pages/perfil.php');
-        exit;
-    }
-    // Forzar que solo vea su propio expediente
-    $aprendizId = $miAprendizId;
-    // Bloquear POST (no puede modificar nada)
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        http_response_code(403);
-        die('No tiene permisos para modificar el expediente.');
-    }
-}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrf();
     try {
         $form = $_POST['form'] ?? '';
-        if ($form === 'plan') {
-            $data = [
-                'pendiente_id' => (int)($_POST['pendiente_id'] ?? 0),
-                'aprendiz_id' => (int)($_POST['aprendiz_id'] ?? 0),
-                'instancia' => $_POST['instancia'] ?? 'Primera instancia',
-                'fecha_concertacion' => $_POST['fecha_concertacion'] ?? date('Y-m-d'),
-                'evidencia_conocimiento' => isset($_POST['evidencia_conocimiento']) ? 1 : 0,
-                'evidencia_producto' => isset($_POST['evidencia_producto']) ? 1 : 0,
-                'evidencia_desempeno' => isset($_POST['evidencia_desempeno']) ? 1 : 0,
-                'descripcion_plan' => trim($_POST['descripcion_plan'] ?? ''),
-                'compromisos' => trim($_POST['compromisos'] ?? ''),
-                'estado' => $_POST['estado'] ?? 'Abierto',
-                'instructor_id' => (int)($_POST['instructor_id'] ?? 0) ?: null,
-                'coordinador_id' => (int)($_POST['coordinador_id'] ?? 0) ?: null,
-                'firma_instructor' => $_POST['firma_instructor'] ?? null,
-                'firma_coordinador' => $_POST['firma_coordinador'] ?? null,
-                'firma_aprendiz' => $_POST['firma_aprendiz'] ?? null,
-            ];
-            if (!$data['pendiente_id'] || !$data['aprendiz_id'] || !$data['descripcion_plan']) {
-                throw new RuntimeException('Complete pendiente, aprendiz y descripcion del plan.');
-            }
-            $stmt = $db->prepare("
-                INSERT INTO planes_mejoramiento
-                (pendiente_id, aprendiz_id, instancia, fecha_concertacion, evidencia_conocimiento, evidencia_producto, evidencia_desempeno, descripcion_plan, compromisos, estado, instructor_id, coordinador_id, firma_instructor, firma_coordinador, firma_aprendiz)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            ");
-            $stmt->execute(array_values($data));
-            $planId = (int)$db->lastInsertId();
-            if (!empty($_FILES['soporte_plan'])) {
-                guardarSoporteExpediente($db, $_FILES['soporte_plan'], [
-                    'aprendiz_id' => $data['aprendiz_id'],
-                    'pendiente_id' => $data['pendiente_id'],
-                    'plan_id' => $planId,
-                    'tipo_soporte' => 'Acta de plan de mejoramiento',
-                    'descripcion' => 'Soporte cargado con el plan de mejoramiento',
-                    'subido_por' => $user['id'] ?? null,
-                ]);
-            }
-            $db->prepare("UPDATE pendientes_aprendices SET estado=? WHERE id=?")
-               ->execute([$data['instancia'], $data['pendiente_id']]);
-            $msg = 'Plan de mejoramiento registrado.';
-        }
-
         if ($form === 'soporte') {
             $aprendizId = (int)($_POST['aprendiz_id'] ?? 0);
             if (!$aprendizId || empty($_FILES['archivo_soporte'])) {
@@ -91,26 +32,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'subido_por' => $user['id'] ?? null,
             ]);
             $msg = 'Soporte agregado al expediente.';
-        }
-
-        if ($form === 'notificacion') {
-            $stmt = $db->prepare("
-                INSERT INTO notificaciones
-                (aprendiz_id, pendiente_id, referencia_tipo, referencia_id, correo_destino, asunto, mensaje, estado_envio, enviado_por)
-                VALUES (?,?,?,?,?,?,?,?,?)
-            ");
-            $stmt->execute([
-                (int)$_POST['aprendiz_id'],
-                (int)($_POST['pendiente_id'] ?? 0) ?: null,
-                $_POST['referencia_tipo'] ?? 'Expediente',
-                (int)($_POST['referencia_id'] ?? 0) ?: null,
-                trim($_POST['correo_destino'] ?? ''),
-                trim($_POST['asunto'] ?? ''),
-                trim($_POST['mensaje'] ?? ''),
-                'Registrada',
-                $user['id'] ?? null,
-            ]);
-            $msg = 'Notificacion registrada como evidencia.';
+        } else {
+            throw new RuntimeException('Formulario no valido para el expediente.');
         }
     } catch (Throwable $e) {
         $err = $e->getMessage();
@@ -126,9 +49,10 @@ $aprendices = $db->query("
 ")->fetchAll();
 
 $aprendiz = null;
-$pendientes = $acciones = $planes = $soportes = $notificaciones = [];
+$pendientes = $acciones = $planes = $soportes = $notificaciones = $eventosAcademicos = $eventosDisciplinarios = $auditoriaCambios = [];
 $diagnostico = null;
 $timeline = [];
+$puedePrepararComite = false;
 
 if ($aprendizId) {
     $s = $db->prepare("
@@ -191,9 +115,72 @@ if ($aprendizId) {
     $no->execute([$aprendizId]);
     $notificaciones = $no->fetchAll();
 
+    $ev = $db->prepare("
+        SELECT afe.*,
+               c.nombre AS competencia,
+               ar.tipo_accion,
+               ar.estado_entrega,
+               ar.estado_revision,
+               ar.observacion_revision,
+               CONCAT(u.nombres,' ',u.apellidos) AS creado_por_nombre,
+               (
+                   SELECT se.archivo_nombre
+                   FROM soportes_expediente se
+                   WHERE se.accion_id = afe.accion_id
+                     AND se.tipo_soporte = 'Evidencia entregada por aprendiz'
+                   ORDER BY se.created_at DESC
+                   LIMIT 1
+               ) AS evidencia_nombre,
+               (
+                   SELECT se.archivo_ruta
+                   FROM soportes_expediente se
+                   WHERE se.accion_id = afe.accion_id
+                     AND se.tipo_soporte = 'Evidencia entregada por aprendiz'
+                   ORDER BY se.created_at DESC
+                   LIMIT 1
+               ) AS evidencia_ruta
+        FROM academico_flujo_eventos afe
+        JOIN pendientes_aprendices pa ON pa.id = afe.pendiente_id
+        JOIN competencias c ON c.id = pa.competencia_id
+        LEFT JOIN acciones_remediales ar ON ar.id = afe.accion_id
+        LEFT JOIN usuarios u ON u.id = afe.creado_por
+        WHERE afe.aprendiz_id=?
+        ORDER BY afe.created_at DESC, afe.id DESC
+    ");
+    $ev->execute([$aprendizId]);
+    $eventosAcademicos = $ev->fetchAll();
+
+    if ($db->query("SHOW TABLES LIKE 'disc_flujo_eventos'")->fetchColumn()) {
+        $ed = $db->prepare("
+            SELECT dfe.*, dh.tipo_hecho, dh.gravedad,
+                   CONCAT(u.nombres,' ',u.apellidos) AS creado_por_nombre
+            FROM disc_flujo_eventos dfe
+            JOIN disc_hechos dh ON dh.id=dfe.hecho_id
+            LEFT JOIN usuarios u ON u.id=dfe.creado_por
+            WHERE dfe.aprendiz_id=?
+            ORDER BY dfe.created_at DESC, dfe.id DESC
+            LIMIT 80
+        ");
+        $ed->execute([$aprendizId]);
+        $eventosDisciplinarios = $ed->fetchAll();
+    }
+
+    $au = $db->prepare("
+        SELECT *
+        FROM auditoria_cambios
+        WHERE aprendiz_id=?
+        ORDER BY created_at DESC, id DESC
+        LIMIT 80
+    ");
+    $au->execute([$aprendizId]);
+    $auditoriaCambios = $au->fetchAll();
+
     $diagnostico = diagnosticoExpediente($db, $aprendizId);
 
     foreach ($pendientes as $pItem) {
+        if (!empty($pItem['habilitado_comite'])) {
+            $puedePrepararComite = true;
+        }
         $timeline[] = [
             'fecha' => $pItem['fecha_registro'],
             'tipo' => 'Pendiente',
@@ -225,11 +212,16 @@ if ($aprendizId) {
             'detalle' => $nItem['estado_envio'] . ' | ' . $nItem['correo_destino'],
         ];
     }
+    foreach ($eventosAcademicos as $evItem) {
+        $timeline[] = [
+            'fecha' => $evItem['created_at'],
+            'tipo' => 'Academico',
+            'titulo' => $evItem['tipo_evento'],
+            'detalle' => $evItem['estado_nuevo'] . ' | ' . $evItem['competencia'],
+        ];
+    }
     usort($timeline, fn($a, $b) => strcmp($b['fecha'], $a['fecha']));
 }
-
-$instructores = $db->query("SELECT id, CONCAT(nombres,' ',apellidos) AS nombre FROM instructores WHERE activo=1 ORDER BY nombres")->fetchAll();
-$coordinadores = $db->query("SELECT id, CONCAT(nombres,' ',apellidos) AS nombre FROM usuarios WHERE rol IN ('Administrador','Coordinador') AND activo=1 ORDER BY nombres")->fetchAll();
 
 require_once __DIR__ . '/../includes/header.php';
 ?>
@@ -237,7 +229,7 @@ require_once __DIR__ . '/../includes/header.php';
 <div class="page-header">
     <div>
         <div class="page-title">Expediente del Aprendiz</div>
-        <div class="page-subtitle">Trazabilidad de acciones, planes, soportes y notificaciones antes de comite</div>
+        <div class="page-subtitle">Consulta de trazabilidad, soportes y notificaciones del caso</div>
     </div>
 </div>
 
@@ -272,7 +264,12 @@ require_once __DIR__ . '/../includes/header.php';
                 Documento <?= sanitize($aprendiz['documento']) ?> | Ficha <?= sanitize($aprendiz['numero_ficha']) ?> | <?= sanitize($aprendiz['programa']) ?>
             </div>
         </div>
-        <a href="comite.php?aprendiz_id=<?= $aprendizId ?>" class="btn btn-secondary btn-sm">Preparar comite</a>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+            <a href="expediente_pdf.php?aprendiz_id=<?= $aprendizId ?>" target="_blank" class="btn btn-primary btn-sm">Exportar PDF</a>
+            <?php if ($puedePrepararComite): ?>
+                <a href="comite.php?aprendiz_id=<?= $aprendizId ?>" class="btn btn-secondary btn-sm">Preparar comite</a>
+            <?php endif; ?>
+        </div>
     </div>
     <?php if (!$diagnostico['completo']): ?>
     <div class="alert alert-warning" style="margin:14px">
@@ -289,7 +286,6 @@ require_once __DIR__ . '/../includes/header.php';
             <div class="table-card-title">Linea de tiempo del expediente</div>
             <div class="section-kicker">Secuencia resumida de pendientes, acciones, planes y notificaciones.</div>
         </div>
-        <a href="asistente_caso.php" class="btn btn-primary btn-sm">Nuevo caso guiado</a>
     </div>
     <div class="timeline">
         <?php if (empty($timeline)): ?>
@@ -304,11 +300,148 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 
 <div class="table-card" style="margin-bottom:18px">
+    <div class="table-card-header">
+        <div>
+            <div class="table-card-title">Trazabilidad academica</div>
+            <div class="section-kicker">Entrega del aprendiz, revision del instructor, correcciones e instancias del caso.</div>
+        </div>
+    </div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Evento</th>
+                    <th>Competencia</th>
+                    <th>Estado</th>
+                    <th>Detalle</th>
+                    <th>Evidencia</th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php if (empty($eventosAcademicos)): ?>
+                <tr><td colspan="6"><div class="empty-state"><p>No hay trazabilidad academica registrada.</p></div></td></tr>
+            <?php endif; ?>
+            <?php foreach ($eventosAcademicos as $evAcad): ?>
+                <tr>
+                    <td><?= date('d/m/Y H:i', strtotime($evAcad['created_at'])) ?></td>
+                    <td>
+                        <strong><?= sanitize($evAcad['tipo_evento']) ?></strong>
+                        <?php if (!empty($evAcad['creado_por_nombre'])): ?>
+                            <br><small><?= sanitize($evAcad['creado_por_nombre']) ?></small>
+                        <?php endif; ?>
+                    </td>
+                    <td><?= sanitize($evAcad['competencia']) ?></td>
+                    <td>
+                        <span class="badge badge-proceso"><?= sanitize($evAcad['estado_nuevo']) ?></span>
+                        <?php if (!empty($evAcad['estado_entrega'])): ?>
+                            <br><small>Entrega: <?= sanitize($evAcad['estado_entrega']) ?></small>
+                        <?php endif; ?>
+                        <?php if (!empty($evAcad['estado_revision']) && $evAcad['estado_revision'] !== 'Pendiente'): ?>
+                            <br><small>Revision: <?= sanitize($evAcad['estado_revision']) ?></small>
+                        <?php endif; ?>
+                    </td>
+                    <td style="font-size:12px;max-width:360px">
+                        <?php if (!empty($evAcad['tipo_accion'])): ?>
+                            <strong><?= sanitize($evAcad['tipo_accion']) ?></strong><br>
+                        <?php endif; ?>
+                        <?= nl2br(sanitize($evAcad['descripcion'] ?? '')) ?>
+                        <?php if (!empty($evAcad['observacion_revision']) && $evAcad['observacion_revision'] !== ($evAcad['descripcion'] ?? '')): ?>
+                            <br><strong>Observacion revision:</strong> <?= nl2br(sanitize($evAcad['observacion_revision'])) ?>
+                        <?php endif; ?>
+                        <?php if (!empty($evAcad['fecha_limite'])): ?>
+                            <br><strong>Fecha limite:</strong> <?= date('d/m/Y', strtotime($evAcad['fecha_limite'])) ?>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if (!empty($evAcad['evidencia_ruta'])): ?>
+                            <a href="<?= BASE_URL . '/' . sanitize($evAcad['evidencia_ruta']) ?>" target="_blank" class="btn btn-sm btn-secondary">Ver evidencia</a>
+                            <br><small style="display:block;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="<?= sanitize($evAcad['evidencia_nombre'] ?? '') ?>">
+                                <?= sanitize($evAcad['evidencia_nombre'] ?? '') ?>
+                            </small>
+                        <?php else: ?>
+                            <small>Sin archivo</small>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="table-card" style="margin-bottom:18px">
+    <div class="table-card-header">
+        <div>
+            <div class="table-card-title">Historial de cambios</div>
+            <div class="section-kicker">Registro automatico de usuario, fecha, modulo y accion realizada.</div>
+        </div>
+    </div>
+    <div class="table-wrapper">
+        <table>
+            <thead><tr><th>Fecha</th><th>Usuario</th><th>Modulo</th><th>Accion</th><th>Cambio</th></tr></thead>
+            <tbody>
+            <?php if (empty($auditoriaCambios)): ?>
+                <tr><td colspan="5"><div class="empty-state"><p>No hay cambios auditados para este aprendiz.</p></div></td></tr>
+            <?php endif; ?>
+            <?php foreach ($auditoriaCambios as $aud): ?>
+                <tr>
+                    <td><?= date('d/m/Y H:i', strtotime($aud['created_at'])) ?></td>
+                    <td>
+                        <strong><?= sanitize($aud['usuario_nombre'] ?: 'Sistema') ?></strong>
+                        <br><small><?= sanitize($aud['usuario_rol'] ?? '') ?></small>
+                    </td>
+                    <td><?= sanitize($aud['modulo']) ?></td>
+                    <td><span class="badge badge-proceso"><?= sanitize($aud['accion']) ?></span></td>
+                    <td style="font-size:12px;max-width:440px">
+                        <?= nl2br(sanitize($aud['descripcion'] ?? '')) ?>
+                        <?php if ($aud['valor_anterior'] !== null || $aud['valor_nuevo'] !== null): ?>
+                            <br><small><strong>Antes:</strong> <?= sanitize($aud['valor_anterior'] ?? '-') ?> | <strong>Despues:</strong> <?= sanitize($aud['valor_nuevo'] ?? '-') ?></small>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="table-card" style="margin-bottom:18px">
+    <div class="table-card-header">
+        <div>
+            <div class="table-card-title">Trazabilidad disciplinaria</div>
+            <div class="section-kicker">Hechos, atenciones, compromisos, seguimientos, reincidencias y remisiones.</div>
+        </div>
+    </div>
+    <div class="table-wrapper">
+        <table>
+            <thead><tr><th>Fecha</th><th>Evento</th><th>Hecho</th><th>Estado</th><th>Detalle</th><th>Usuario</th></tr></thead>
+            <tbody>
+            <?php if (empty($eventosDisciplinarios)): ?>
+                <tr><td colspan="6"><div class="empty-state"><p>No hay trazabilidad disciplinaria registrada.</p></div></td></tr>
+            <?php endif; ?>
+            <?php foreach ($eventosDisciplinarios as $evDisc): ?>
+                <tr>
+                    <td><?= date('d/m/Y H:i', strtotime($evDisc['created_at'])) ?></td>
+                    <td><strong><?= sanitize($evDisc['tipo_evento']) ?></strong></td>
+                    <td><?= sanitize($evDisc['tipo_hecho']) ?><br><small><?= sanitize($evDisc['gravedad'] ?? '') ?></small></td>
+                    <td><span class="badge badge-proceso"><?= sanitize($evDisc['estado_nuevo']) ?></span></td>
+                    <td style="font-size:12px;max-width:420px"><?= nl2br(sanitize($evDisc['descripcion'] ?? '')) ?></td>
+                    <td><?= sanitize($evDisc['creado_por_nombre'] ?? 'Sistema') ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="table-card" style="margin-bottom:18px">
     <div class="table-card-header"><div class="table-card-title">Pendientes</div></div>
     <div class="table-wrapper">
         <table>
             <thead><tr><th>Fecha</th><th>Competencia</th><th>Instructor</th><th>Estado</th><th>Opciones</th></tr></thead>
             <tbody>
+            <?php if (empty($pendientes)): ?><tr><td colspan="5"><div class="empty-state"><p>No hay pendientes registrados.</p></div></td></tr><?php endif; ?>
             <?php foreach ($pendientes as $p): ?>
                 <tr>
                     <td><?= date('d/m/Y', strtotime($p['fecha_registro'])) ?></td>
@@ -321,53 +454,6 @@ require_once __DIR__ . '/../includes/header.php';
             </tbody>
         </table>
     </div>
-</div>
-
-<div class="table-card" style="margin-bottom:18px">
-    <div class="table-card-header"><div class="table-card-title">Registrar plan de mejoramiento</div></div>
-    <form method="POST" enctype="multipart/form-data" style="padding:16px">
-        <input type="hidden" name="form" value="plan">
-        <input type="hidden" name="aprendiz_id" value="<?= $aprendizId ?>">
-        <div class="form-grid">
-            <div class="form-group">
-                <label>Pendiente *</label>
-                <select name="pendiente_id" required>
-                    <?php foreach ($pendientes as $p): ?>
-                    <option value="<?= $p['id'] ?>" <?= $pendienteId===$p['id']?'selected':'' ?>><?= sanitize($p['competencia']) ?> - <?= sanitize($p['estado']) ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Instancia *</label>
-                <select name="instancia"><option>Primera instancia</option><option>Segunda instancia</option></select>
-            </div>
-            <div class="form-group">
-                <label>Fecha concertacion *</label>
-                <input type="date" name="fecha_concertacion" value="<?= date('Y-m-d') ?>" required>
-            </div>
-            <div class="form-group">
-                <label>Instructor</label>
-                <select name="instructor_id"><option value="">-- Seleccionar --</option><?php foreach ($instructores as $i): ?><option value="<?= $i['id'] ?>"><?= sanitize($i['nombre']) ?></option><?php endforeach; ?></select>
-            </div>
-            <div class="form-group">
-                <label>Coordinador</label>
-                <select name="coordinador_id"><option value="">-- Seleccionar --</option><?php foreach ($coordinadores as $c): ?><option value="<?= $c['id'] ?>"><?= sanitize($c['nombre']) ?></option><?php endforeach; ?></select>
-            </div>
-            <div class="form-group">
-                <label>Estado</label>
-                <select name="estado"><option>Abierto</option><option>Cumplido</option><option>No cumplido</option><option>Cerrado</option></select>
-            </div>
-            <div class="form-group full" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
-                <label style="text-transform:none"><input type="checkbox" name="evidencia_conocimiento" style="width:auto"> Evidencia de conocimiento</label>
-                <label style="text-transform:none"><input type="checkbox" name="evidencia_producto" style="width:auto"> Evidencia de producto</label>
-                <label style="text-transform:none"><input type="checkbox" name="evidencia_desempeno" style="width:auto"> Evidencia de desempeno</label>
-            </div>
-            <div class="form-group full"><label>Plan concertado *</label><textarea name="descripcion_plan" required placeholder="Orientaciones, estrategias metodologicas y evidencia que debe presentar el aprendiz."></textarea></div>
-            <div class="form-group full"><label>Compromisos</label><textarea name="compromisos" placeholder="Fechas, responsables y acuerdos de seguimiento."></textarea></div>
-            <div class="form-group full"><label>Acta o soporte del plan</label><input type="file" name="soporte_plan" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"></div>
-        </div>
-        <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn btn-primary" type="submit">Guardar plan</button></div>
-    </form>
 </div>
 
 <div class="table-card" style="margin-bottom:18px">
@@ -429,16 +515,6 @@ require_once __DIR__ . '/../includes/header.php';
 
 <div class="table-card" style="margin-bottom:18px">
     <div class="table-card-header"><div class="table-card-title">Notificaciones</div></div>
-    <form method="POST" style="padding:16px;border-bottom:1px solid var(--gris-border)">
-        <input type="hidden" name="form" value="notificacion">
-        <input type="hidden" name="aprendiz_id" value="<?= $aprendizId ?>">
-        <div class="form-grid">
-            <div class="form-group"><label>Correo destino</label><input type="email" name="correo_destino" value="<?= sanitize($aprendiz['email'] ?? '') ?>" required></div>
-            <div class="form-group"><label>Asunto</label><input type="text" name="asunto" required placeholder="Concertacion de accion o plan"></div>
-            <div class="form-group full"><label>Mensaje</label><textarea name="mensaje" required placeholder="Detalle de la citacion, evidencia, fecha y hora."></textarea></div>
-        </div>
-        <div style="display:flex;justify-content:flex-end"><button class="btn btn-primary" type="submit">Registrar notificacion</button></div>
-    </form>
     <div class="table-wrapper">
         <table>
             <thead><tr><th>Fecha</th><th>Destino</th><th>Asunto</th><th>Estado</th></tr></thead>

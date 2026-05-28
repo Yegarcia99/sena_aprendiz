@@ -2,6 +2,7 @@
 // pages/instructores.php - Con creación automática de usuario
 require_once __DIR__ . '/../includes/auth.php';
 requireLogin();
+denyIfAprendiz(); // Aprendiz no tiene acceso a esta página
 if (!hasRole(['Administrador','Coordinador'])) {
     header('Location: ' . BASE_URL . '/pages/dashboard.php'); exit;
 }
@@ -27,9 +28,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $editId = (int)($_POST['edit_id'] ?? 0);
             $db->beginTransaction();
+
+            // ── Procesar foto si se subió ──────────────────────
+            $fotoFilename = null;
+            if (!empty($_FILES['foto_instructor']['tmp_name']) && $_FILES['foto_instructor']['error'] === UPLOAD_ERR_OK) {
+                $f     = $_FILES['foto_instructor'];
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                $mime  = finfo_file($finfo, $f['tmp_name']);
+                finfo_close($finfo);
+                $allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+                if (in_array($mime, $allowed) && $f['size'] <= 2 * 1024 * 1024) {
+                    $uploadDir = __DIR__ . '/../uploads/fotos_instructores/';
+                    if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+                    $src = match($mime) {
+                        'image/png'  => @imagecreatefrompng($f['tmp_name']),
+                        'image/webp' => @imagecreatefromwebp($f['tmp_name']),
+                        default      => @imagecreatefromjpeg($f['tmp_name']),
+                    };
+                    if ($src) {
+                        $w = imagesx($src); $h = imagesy($src); $max = 400;
+                        if ($w > $max || $h > $max) {
+                            $ratio = min($max/$w, $max/$h);
+                            $nw = (int)round($w*$ratio); $nh = (int)round($h*$ratio);
+                            $dst = imagecreatetruecolor($nw, $nh);
+                            $white = imagecolorallocate($dst, 255, 255, 255);
+                            imagefilledrectangle($dst, 0, 0, $nw, $nh, $white);
+                            imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $w, $h);
+                            imagedestroy($src); $src = $dst;
+                        }
+                        $idParaFoto   = $editId ?: ('new_' . time());
+                        $fotoFilename = 'ins_' . $idParaFoto . '_' . time() . '.jpg';
+                        imagejpeg($src, $uploadDir . $fotoFilename, 88);
+                        imagedestroy($src);
+                    }
+                }
+            }
+
             if ($editId) {
+                // Si ya tiene foto, no sobreescribir (foto inmutable)
+                $fotoActual = $db->prepare("SELECT foto FROM instructores WHERE id=?");
+                $fotoActual->execute([$editId]);
+                if ($fotoActual->fetchColumn()) {
+                    $fotoFilename = null;
+                }
+
                 $db->prepare("UPDATE instructores SET nombres=?,apellidos=?,documento=?,email=?,telefono=?,tipo=?,activo=? WHERE id=?")
                    ->execute([...array_values($data), $editId]);
+                if ($fotoFilename) {
+                    $db->prepare("UPDATE instructores SET foto=? WHERE id=?")->execute([$fotoFilename, $editId]);
+                }
                 // Actualizar datos del usuario vinculado si existe
                 $usuarioId = $db->prepare("SELECT usuario_id FROM instructores WHERE id=?");
                 $usuarioId->execute([$editId]);
@@ -41,21 +88,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $msg = 'Instructor actualizado.';
             } else {
                 // Crear usuario automáticamente
-                // Username = documento, contraseña temporal = documento
-                $username     = $data['documento'];
-                $passTemp     = password_hash($data['documento'], PASSWORD_DEFAULT);
-                // Verificar si ya existe username
+                $username = $data['documento'];
+                $passTemp = password_hash($data['documento'], PASSWORD_DEFAULT);
                 $chk = $db->prepare("SELECT id FROM usuarios WHERE username=?");
                 $chk->execute([$username]);
                 if ($chk->fetchColumn()) {
-                    $username = $data['documento'] . '_ins'; // fallback único
+                    $username = $data['documento'] . '_ins';
                 }
-                $db->prepare("INSERT INTO usuarios (username,password_hash,nombres,apellidos,email,rol,activo,debe_cambiar_pass) VALUES(?,?,?,?,?,'Instructor',1,1)")
-                   ->execute([$username, $passTemp, $data['nombres'], $data['apellidos'], $data['email']]);
+                $stmtUsr = $db->prepare("INSERT INTO usuarios (username,password_hash,nombres,apellidos,email,rol,activo,debe_cambiar_pass,debe_subir_foto) VALUES(:u,:p,:n,:a,:e,:r,1,1,1)");
+                $stmtUsr->execute([
+                    ':u' => $username,
+                    ':p' => $passTemp,
+                    ':n' => $data['nombres'],
+                    ':a' => $data['apellidos'],
+                    ':e' => $data['email'] ?: '',
+                    ':r' => 'Instructor',
+                ]);
                 $nuevoUserId = $db->lastInsertId();
+                // Doble garantía
+                $db->prepare("UPDATE usuarios SET rol='Instructor', debe_subir_foto=1, debe_cambiar_pass=1 WHERE id=?")->execute([$nuevoUserId]);
 
-                $db->prepare("INSERT INTO instructores (nombres,apellidos,documento,email,telefono,tipo,activo,usuario_id) VALUES(?,?,?,?,?,?,?,?)")
-                   ->execute([$data['nombres'],$data['apellidos'],$data['documento'],$data['email'],$data['telefono'],$data['tipo'],$data['activo'],$nuevoUserId]);
+                $db->prepare("INSERT INTO instructores (nombres,apellidos,documento,email,telefono,tipo,activo,usuario_id,foto) VALUES(?,?,?,?,?,?,?,?,?)")
+                   ->execute([$data['nombres'],$data['apellidos'],$data['documento'],$data['email'],$data['telefono'],$data['tipo'],$data['activo'],$nuevoUserId,$fotoFilename]);
+                $nuevoInsId = $db->lastInsertId();
+
+                // Si se subió foto con nombre temporal, renombrarla
+                if ($fotoFilename && str_contains($fotoFilename, 'new_')) {
+                    $uploadDir   = __DIR__ . '/../uploads/fotos_instructores/';
+                    $nuevoNombre = 'ins_' . $nuevoInsId . '_' . time() . '.jpg';
+                    if (file_exists($uploadDir . $fotoFilename)) {
+                        rename($uploadDir . $fotoFilename, $uploadDir . $nuevoNombre);
+                        $db->prepare("UPDATE instructores SET foto=? WHERE id=?")->execute([$nuevoNombre, $nuevoInsId]);
+                    }
+                }
 
                 $msg = "Instructor registrado. Usuario creado: <strong>$username</strong> — contraseña temporal: <strong>{$data['documento']}</strong> (deberá cambiarla al ingresar).";
             }
@@ -67,26 +132,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 }
+
 if ($action === 'delete' && $id) {
     verifyCsrf();
     try {
         $db->beginTransaction();
-        // Obtener usuario vinculado
         $stmt = $db->prepare("SELECT usuario_id FROM instructores WHERE id=?");
         $stmt->execute([$id]);
         $usuarioVinculado = $stmt->fetchColumn();
 
-        // Desvincular instructor de fichas
         $db->prepare("DELETE FROM ficha_instructores WHERE instructor_id=?")->execute([$id]);
-
-        // Nullificar referencias en pendientes y acciones (no eliminar el historial)
         $db->prepare("UPDATE pendientes_aprendices SET instructor_id=NULL WHERE instructor_id=?")->execute([$id]);
         $db->prepare("UPDATE acciones_remediales SET instructor_id=NULL WHERE instructor_id=?")->execute([$id]);
-
-        // Eliminar instructor
         $db->prepare("DELETE FROM instructores WHERE id=?")->execute([$id]);
 
-        // Eliminar usuario del sistema vinculado si existe
         if ($usuarioVinculado) {
             $db->prepare("DELETE FROM usuarios WHERE id=?")->execute([$usuarioVinculado]);
         }
@@ -104,7 +163,9 @@ $search = trim($_GET['q'] ?? ''); $page = max(1,(int)($_GET['p']??1)); $limit=20
 $where = '1=1'; $params = [];
 if ($search) { $where="(i.nombres LIKE ? OR i.apellidos LIKE ? OR i.documento LIKE ?)"; $params=array_fill(0,3,"%$search%"); }
 $total = $db->prepare("SELECT COUNT(*) FROM instructores i WHERE $where"); $total->execute($params); $total=$total->fetchColumn(); $pages=ceil($total/$limit);
-$stmt = $db->prepare("SELECT i.*, u.username FROM instructores i LEFT JOIN usuarios u ON u.id=i.usuario_id WHERE $where ORDER BY i.apellidos,i.nombres LIMIT $limit OFFSET $offset");
+
+// Query con foto
+$stmt = $db->prepare("SELECT i.*, u.username, i.foto AS foto_instructor FROM instructores i LEFT JOIN usuarios u ON u.id=i.usuario_id WHERE $where ORDER BY i.apellidos,i.nombres LIMIT $limit OFFSET $offset");
 $stmt->execute($params);
 $instructores = $stmt->fetchAll();
 
@@ -133,12 +194,32 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
     <div class="table-wrapper">
         <table>
-            <thead><tr><th>Documento</th><th>Nombre</th><th>Email</th><th>Tipo</th><th>Usuario Sistema</th><th>Estado</th><th>Opciones</th></tr></thead>
+            <thead>
+                <tr>
+                    <th style="width:52px"></th>
+                    <th>Documento</th>
+                    <th>Nombre</th>
+                    <th>Email</th>
+                    <th>Tipo</th>
+                    <th>Usuario Sistema</th>
+                    <th>Estado</th>
+                    <th>Opciones</th>
+                </tr>
+            </thead>
             <tbody>
             <?php if (empty($instructores)): ?>
-                <tr><td colspan="7"><div class="empty-state"><div class="icon">◇</div><p>No hay instructores registrados.</p></div></td></tr>
+                <tr><td colspan="8"><div class="empty-state"><div class="icon">◇</div><p>No hay instructores registrados.</p></div></td></tr>
             <?php else: foreach ($instructores as $i): ?>
                 <tr>
+                    <td style="text-align:center;padding:6px 8px">
+                        <?php if (!empty($i['foto_instructor'])): ?>
+                        <img src="<?= BASE_URL ?>/uploads/fotos_instructores/<?= htmlspecialchars($i['foto_instructor'], ENT_QUOTES, 'UTF-8') ?>"
+                             style="width:38px;height:38px;border-radius:50%;object-fit:cover;border:2px solid #e0e0e0;display:block;margin:auto"
+                             alt="Foto">
+                        <?php else: ?>
+                        <div style="width:38px;height:38px;border-radius:50%;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:20px;margin:auto;border:2px solid #e8e8e8">👤</div>
+                        <?php endif; ?>
+                    </td>
                     <td><strong><?= sanitize($i['documento']) ?></strong></td>
                     <td><?= sanitize($i['apellidos'].', '.$i['nombres']) ?></td>
                     <td style="font-size:12px"><?= sanitize($i['email'] ?? '—') ?></td>
@@ -167,7 +248,7 @@ require_once __DIR__ . '/../includes/header.php';
 <div class="modal-overlay" id="modalIns">
     <div class="modal" style="max-width:560px">
         <div class="modal-header"><div class="modal-title" id="titleIns">Nuevo Instructor</div><button class="modal-close" onclick="closeModal('modalIns')">✕</button></div>
-        <form method="POST">
+        <form method="POST" enctype="multipart/form-data">
             <input type="hidden" name="edit_id" id="insEditId" value="0">
             <div class="modal-body">
                 <div id="infoNuevo" class="alert" style="background:#e8f5e9;border-left:4px solid var(--verde);padding:10px 14px;font-size:12px;margin-bottom:14px">
@@ -183,6 +264,24 @@ require_once __DIR__ . '/../includes/header.php';
                     <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:22px">
                         <input type="checkbox" name="activo" id="ins_activo" value="1" checked style="width:auto">
                         <label for="ins_activo" style="text-transform:none;font-size:13px">Activo en el sistema</label>
+                    </div>
+                </div>
+                <!-- Campo foto -->
+                <div class="form-group" id="wrapFotoIns" style="margin-top:8px">
+                    <label>Foto del Instructor <small style="color:#aaa;font-weight:400">(opcional · JPG/PNG · máx. 2 MB)</small></label>
+                    <div style="display:flex;align-items:center;gap:14px">
+                        <div style="width:60px;height:60px;border-radius:50%;overflow:hidden;background:#f0f0f0;border:2px solid #ddd;display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0">
+                            <span id="fotoIconIns">👤</span>
+                            <img id="fotoPreviewIns" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none">
+                        </div>
+                        <div>
+                            <input type="file" id="fotoInputIns" name="foto_instructor" accept="image/jpeg,image/png,image/webp"
+                                   onchange="previsualizarIns(this)" style="display:none">
+                            <label for="fotoInputIns" class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">
+                                📷 Elegir foto
+                            </label>
+                            <div style="font-size:11px;color:#aaa;margin-top:4px">La foto no podrá cambiarse una vez guardada.</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -215,6 +314,19 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 
 <script>
+function previsualizarIns(input) {
+    const file = input.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { alert('La imagen no debe superar 2 MB.'); input.value = ''; return; }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        document.getElementById('fotoPreviewIns').src = e.target.result;
+        document.getElementById('fotoPreviewIns').style.display = 'block';
+        document.getElementById('fotoIconIns').style.display = 'none';
+    };
+    reader.readAsDataURL(file);
+}
+
 function editIns(d) {
     document.getElementById('titleIns').textContent = 'Editar Instructor';
     document.getElementById('infoNuevo').style.display = 'none';
@@ -226,12 +338,24 @@ function editIns(d) {
     document.getElementById('ins_tel').value      = d.telefono||'';
     document.getElementById('ins_tipo').value     = d.tipo;
     document.getElementById('ins_activo').checked = d.activo==1;
+    // Si ya tiene foto, ocultar campo (inmutable)
+    const wrapFoto = document.getElementById('wrapFotoIns');
+    if (d.foto_instructor) {
+        wrapFoto.style.display = 'none';
+    } else {
+        wrapFoto.style.display = 'block';
+        document.getElementById('fotoPreviewIns').style.display = 'none';
+        document.getElementById('fotoIconIns').style.display = 'inline';
+    }
     openModal('modalIns');
 }
 document.querySelector('[onclick="openModal(\'modalIns\')"]')?.addEventListener('click', () => {
     document.getElementById('titleIns').textContent = 'Nuevo Instructor';
     document.getElementById('infoNuevo').style.display = 'block';
     document.getElementById('insEditId').value = '0';
+    document.getElementById('wrapFotoIns').style.display = 'block';
+    document.getElementById('fotoPreviewIns').style.display = 'none';
+    document.getElementById('fotoIconIns').style.display = 'inline';
 });
 const dzI=document.getElementById('dzIns'), fiI=document.getElementById('csvIns');
 dzI.addEventListener('dragover',e=>{e.preventDefault();dzI.classList.add('dragover')});

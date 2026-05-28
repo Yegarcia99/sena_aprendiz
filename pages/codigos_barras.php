@@ -2,6 +2,7 @@
 // pages/codigos_barras.php — Analítica gráfica de fichas / grupos
 require_once __DIR__ . '/../includes/auth.php';
 requireLogin();
+denyIfAprendiz(); // Aprendiz no tiene acceso a esta página
 denyIfInstructorOrAprendiz(); // Analítica solo para Gestor, Coordinador, Administrador
 $pageTitle = 'Analítica de Fichas';
 $db = getDB();

@@ -2,10 +2,12 @@
 // pages/asistente_caso.php - Flujo guiado para registrar un caso completo
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/expediente_schema.php';
+require_once __DIR__ . '/../includes/academico_flujo.php';
 requireLogin();
+denyIfAprendiz(); // Aprendiz no tiene acceso a esta página
 denyIfInstructorOrAprendiz();
 
-$pageTitle = 'Asistente Académico';
+$pageTitle = 'Registro Guiado Avanzado';
 $db = getDB();
 ensureExpedienteSchema($db);
 
@@ -49,31 +51,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new RuntimeException('Para casos académicos debe seleccionar una competencia.');
         }
 
+        if (!$esDisciplinario) {
+            $estadoPendiente = 'Pendiente';
+        }
+
+        $gestorId = null;
+        if (!$esDisciplinario) {
+            $gestorStmt = $db->prepare("SELECT f.gestor_id FROM aprendices a JOIN fichas f ON f.id = a.ficha_id WHERE a.id = ?");
+            $gestorStmt->execute([$aprendizId]);
+            $gestorId = (int)($gestorStmt->fetchColumn() ?: 0) ?: null;
+        }
+
         $stmt = $db->prepare("
             INSERT INTO pendientes_aprendices
-            (aprendiz_id, competencia_id, resultado_id, instructor_id, trimestre_ocurrencia, fecha_registro, tipo_caso, motivo, debe_repetir_competencia, estado, observaciones)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            (aprendiz_id, competencia_id, resultado_id, instructor_id, gestor_id, trimestre_ocurrencia, fecha_registro, tipo_caso, motivo, debe_repetir_competencia, estado, estado_flujo, instancia_actual, observaciones)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ");
         $stmt->execute([
             $aprendizId,
             $esDisciplinario ? null : $competenciaId,
             $esDisciplinario ? null : $resultadoId,
             $instructorId,
+            $gestorId,
             $trimestre,
             $_POST['fecha_registro'] ?? date('Y-m-d'),
             $tipoCaso,
             $motivo,
             $esDisciplinario ? 0 : postBool('debe_repetir'),
             $estadoPendiente,
+            $esDisciplinario ? 'Reportado disciplinario' : 'Reportado',
+            0,
             trim($observacionesPendiente . "\nMomento del proceso: " . $momentoProceso),
         ]);
         $pendienteId = (int)$db->lastInsertId();
+        if (!$esDisciplinario) {
+            registrarEventoAcademico($db, $pendienteId, $aprendizId, 'Registro guiado avanzado', 'Reportado', $motivo);
+            notificarReporteAcademico($db, $pendienteId);
+        }
 
         $huboAccion      = $_POST['hubo_accion'] ?? 'Si';
         $accionResultado = $_POST['resultado_accion'] ?? 'En proceso';
         $accionTipo      = $huboAccion === 'Si' ? ($_POST['tipo_accion'] ?? 'Refuerzo presencial') : 'Sin accion remedial - justificacion';
         $accionDescripcion       = trim($_POST['descripcion_accion'] ?? '');
         $justificacionSinAccion  = trim($_POST['justificacion_sin_accion'] ?? '');
+        $fechaLimiteAccion       = ($_POST['fecha_limite_accion'] ?? '') ?: null;
 
         if ($huboAccion === 'Si' && $accionDescripcion === '') {
             throw new RuntimeException('Describa la accion realizada.');
@@ -84,13 +105,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $stmt = $db->prepare("
             INSERT INTO acciones_remediales
-            (pendiente_id, instructor_id, fecha_accion, tipo_accion, descripcion, resultado, novedad_aprobacion, observaciones, firma_instructor, firma_aprendiz)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
+            (pendiente_id, instructor_id, fecha_accion, fecha_limite, tipo_accion, descripcion, resultado, novedad_aprobacion, observaciones, firma_instructor, firma_aprendiz)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
         ");
         $stmt->execute([
             $pendienteId,
             $instructorId,
             $_POST['fecha_accion'] ?? date('Y-m-d'),
+            $fechaLimiteAccion,
             $accionTipo,
             $huboAccion === 'Si' ? $accionDescripcion : $justificacionSinAccion,
             $accionResultado,
@@ -100,6 +122,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_POST['firma_accion_aprendiz'] ?: null,
         ]);
         $accionId = (int)$db->lastInsertId();
+        if (!$esDisciplinario) {
+            registrarEventoAcademico($db, $pendienteId, $aprendizId, 'Accion remedial', 'Accion remedial asignada', $huboAccion === 'Si' ? $accionDescripcion : $justificacionSinAccion, 'Reportado', 0, $fechaLimiteAccion, $accionId);
+            notificarAccionRemedial($db, $pendienteId, $accionId, $fechaLimiteAccion);
+        }
 
         if ($file = firstUploadedFile('soporte_accion')) {
             guardarSoporteExpediente($db, $file, [
@@ -113,7 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // Plan de mejoramiento (solo académico)
-        $crearPlan = isset($_POST['crear_plan']) && !$esDisciplinario;
+        $crearPlan = false;
         if ($crearPlan) {
             $descripcionPlan = trim($_POST['descripcion_plan'] ?? '');
             if ($descripcionPlan === '') {
@@ -155,11 +181,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
             }
         } elseif ($accionResultado === 'Aprobado') {
-            $db->prepare("UPDATE pendientes_aprendices SET estado='Superado' WHERE id=?")->execute([$pendienteId]);
+            $db->prepare("UPDATE pendientes_aprendices SET estado='Superado', estado_flujo='Superado' WHERE id=?")->execute([$pendienteId]);
         } elseif ($accionResultado === 'No aprobado') {
-            $db->prepare("UPDATE pendientes_aprendices SET estado='No aprobado' WHERE id=?")->execute([$pendienteId]);
+            $db->prepare("UPDATE pendientes_aprendices SET estado='En proceso', estado_flujo='Accion remedial no aprobada', fecha_limite_actual=? WHERE id=?")->execute([$fechaLimiteAccion, $pendienteId]);
         } else {
-            $db->prepare("UPDATE pendientes_aprendices SET estado='En proceso' WHERE id=?")->execute([$pendienteId]);
+            $db->prepare("UPDATE pendientes_aprendices SET estado='En proceso', estado_flujo='Accion remedial asignada', fecha_limite_actual=? WHERE id=?")->execute([$fechaLimiteAccion, $pendienteId]);
         }
 
         if ($file = firstUploadedFile('soporte_general')) {
@@ -205,8 +231,8 @@ require_once __DIR__ . '/../includes/header.php';
 
 <div class="page-header">
     <div>
-        <div class="page-title">Asistente Académico</div>
-        <div class="page-subtitle">Seleccione el tipo de caso para registrar el flujo correcto</div>
+        <div class="page-title">Registro Guiado Avanzado</div>
+        <div class="page-subtitle">Herramienta auxiliar para gestores, coordinacion y administracion</div>
     </div>
     <a href="expediente.php" class="btn btn-secondary">Ver expedientes</a>
 </div>
@@ -379,6 +405,10 @@ require_once __DIR__ . '/../includes/header.php';
                             <input type="date" name="fecha_accion" value="<?= date('Y-m-d') ?>">
                         </div>
                         <div class="form-group">
+                            <label>Fecha limite del aprendiz</label>
+                            <input type="date" name="fecha_limite_accion">
+                        </div>
+                        <div class="form-group">
                             <label>Resultado</label>
                             <select name="resultado_accion" id="resultado_accion_acad" onchange="sugerirPlanAcad()">
                                 <option>En proceso</option><option>Aprobado</option><option>No aprobado</option>
@@ -434,10 +464,10 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
                 </div>
                 <div class="professional-card-body">
-                    <div class="alert alert-warning">Use esta sección cuando el resultado ya finalizó. Máximo dos instancias antes de comité, salvo caso grave.</div>
+                    <div class="alert alert-warning">Las instancias se gestionan desde el modulo Instancias para respetar la secuencia oficial del proceso.</div>
                     <div class="form-group" style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-                        <input type="checkbox" name="crear_plan" id="crear_plan" value="1" style="width:auto" onchange="togglePlan()">
-                        <label for="crear_plan" style="text-transform:none">Crear plan de mejoramiento en este registro</label>
+                        <input type="checkbox" id="crear_plan" value="1" style="width:auto" disabled>
+                        <label for="crear_plan" style="text-transform:none">Crear primera o segunda instancia desde Instancias</label>
                     </div>
                     <div id="planBox" style="display:none">
                         <div class="form-grid">

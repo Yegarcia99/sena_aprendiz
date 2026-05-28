@@ -85,6 +85,26 @@ function isLoggedIn(): bool {
         return false;
     }
     $_SESSION['last_activity'] = time();
+    // Refrescar SIEMPRE el rol y datos del usuario desde la BD
+    // Esto garantiza que cambios de rol se reflejen de inmediato sin re-login
+    try {
+        $db = getDB();
+        $s = $db->prepare("SELECT rol, nombres, apellidos, email, foto, activo, debe_subir_foto, debe_cambiar_pass FROM usuarios WHERE id=? AND activo=1");
+        $s->execute([$_SESSION['user_id']]);
+        $fresh = $s->fetch();
+        if (!$fresh) {
+            // Usuario desactivado o eliminado: cerrar sesión
+            session_destroy();
+            return false;
+        }
+        $_SESSION['user']['rol']             = $fresh['rol'];
+        $_SESSION['user']['nombres']         = $fresh['nombres'];
+        $_SESSION['user']['apellidos']       = $fresh['apellidos'];
+        $_SESSION['user']['email']           = $fresh['email'];
+        $_SESSION['user']['foto']            = $fresh['foto'];
+        $_SESSION['user']['debe_subir_foto'] = $fresh['debe_subir_foto'];
+        $_SESSION['user']['debe_cambiar_pass']= $fresh['debe_cambiar_pass'];
+    } catch (Throwable $e) { /* ignorar si falla la BD */ }
     return true;
 }
 
@@ -153,7 +173,23 @@ function sanitize(string $val): string {
 // ── HELPERS DE ROL ───────────────────────────────────────────
 
 function isAprendiz(): bool {
-    return ($_SESSION['user']['rol'] ?? '') === 'Aprendiz';
+    $rol = $_SESSION['user']['rol'] ?? '';
+    if ($rol === 'Aprendiz') return true;
+    // Seguridad extra: si el rol en BD está vacío o mal, verificar por la tabla aprendices
+    if ($rol === '' || $rol === null) {
+        try {
+            $db = getDB();
+            $s = $db->prepare("SELECT COUNT(*) FROM aprendices WHERE usuario_id=?");
+            $s->execute([$_SESSION['user_id'] ?? 0]);
+            if ($s->fetchColumn() > 0) {
+                // Corregir el rol en BD y sesión
+                $db->prepare("UPDATE usuarios SET rol='Aprendiz' WHERE id=?")->execute([$_SESSION['user_id']]);
+                $_SESSION['user']['rol'] = 'Aprendiz';
+                return true;
+            }
+        } catch (Throwable $e) {}
+    }
+    return false;
 }
 
 function isInstructor(): bool {

@@ -168,6 +168,11 @@ function enviarBienvenidaAprendiz(
         </p>
         <p style='color:#7a9e8a;font-size:12px'>Si tienes problemas para ingresar, comunícate con tu coordinador o instructor.</p>";
 
+        // Buscar usuario_id del aprendiz para vincular la notificación
+        $stmtUid = $db->prepare("SELECT usuario_id FROM aprendices WHERE id = ?");
+        $stmtUid->execute([$aprendizId]);
+        $uidAprendiz = (int)($stmtUid->fetchColumn() ?: 0);
+
         $html = _templateCorreo('Bienvenido al Sistema SENA', $cuerpoAprendiz);
         $enviado = _enviarCorreoSena(
             $emailAprendiz,
@@ -177,14 +182,15 @@ function enviarBienvenidaAprendiz(
             MAIL_COORDINADOR
         );
 
-        // Registrar en BD
+        // Registrar en BD vinculando al usuario del aprendiz
         _registrarNotificacionBD($db, $aprendizId, 0,
             'Bienvenida al sistema',
             'Bienvenido al Sistema de Seguimiento SENA — Tus credenciales de acceso',
             "Cuenta creada para {$nombreCompleto} (Doc: {$documento}). Contraseña inicial: sena{$documento}",
             $emailAprendiz,
             $enviado ? 'Enviada' : 'Error',
-            $registradoPor
+            $registradoPor,
+            $uidAprendiz
         );
     }
 
@@ -333,16 +339,18 @@ function _registrarNotificacionBD(
     string $mensaje,
     string $correoDestino,
     string $estadoEnvio,
-    int    $enviadoPor
+    int    $enviadoPor,
+    int    $usuarioId = 0
 ): void {
     try {
         $db->prepare("
             INSERT INTO notificaciones
-            (aprendiz_id, pendiente_id, referencia_tipo, referencia_id,
+            (aprendiz_id, usuario_id, pendiente_id, referencia_tipo, referencia_id,
              correo_destino, asunto, mensaje, estado_envio, enviado_por)
-            VALUES (?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
         ")->execute([
             $aprendizId ?: null,
+            $usuarioId  ?: null,
             $pendienteId ?: null,
             $referenciaTipo,
             null,
@@ -386,28 +394,66 @@ function crearAlertaUsuario(
 //  Campanita — alertas internas
 // ============================================================
 function getAlertasPendientes(PDO $db): array {
+    $user   = getCurrentUser();
+    $uid    = (int)($user['id'] ?? 0);
+    $rol    = $user['rol'] ?? '';
+
+    // Aprendiz: solo ve sus propias notificaciones
+    // Otros roles: ven las notificaciones sin usuario_id (sistema/coordinador) y las propias
     try {
-        return $db->query("
-            SELECT n.*,
-                   CONCAT(a.nombres,' ',a.apellidos) AS aprendiz_nombre
-            FROM notificaciones n
-            LEFT JOIN aprendices a ON a.id = n.aprendiz_id
-            WHERE n.referencia_tipo IN ('Comité','Sistema','Expediente','Accion','Plan','Bienvenida al sistema','Notificación coordinador')
-            ORDER BY n.fecha_envio DESC
-            LIMIT 15
-        ")->fetchAll();
+        if ($rol === 'Aprendiz') {
+            $stmt = $db->prepare("
+                SELECT n.*,
+                       CONCAT(a.nombres,' ',a.apellidos) AS aprendiz_nombre
+                FROM notificaciones n
+                LEFT JOIN aprendices a ON a.id = n.aprendiz_id
+                WHERE n.usuario_id = ?
+                ORDER BY n.fecha_envio DESC
+                LIMIT 15
+            ");
+            $stmt->execute([$uid]);
+        } else {
+            $stmt = $db->prepare("
+                SELECT n.*,
+                       CONCAT(a.nombres,' ',a.apellidos) AS aprendiz_nombre
+                FROM notificaciones n
+                LEFT JOIN aprendices a ON a.id = n.aprendiz_id
+                WHERE (n.usuario_id = ? OR n.usuario_id IS NULL)
+                AND n.referencia_tipo IN ('Comité','Sistema','Expediente','Academico','Accion','Plan','Bienvenida al sistema','Notificación coordinador')
+                ORDER BY n.fecha_envio DESC
+                LIMIT 15
+            ");
+            $stmt->execute([$uid]);
+        }
+        return $stmt->fetchAll();
     } catch (Throwable $e) {
         return [];
     }
 }
 
 function contarAlertasNuevas(PDO $db): int {
+    $user = getCurrentUser();
+    $uid  = (int)($user['id'] ?? 0);
+    $rol  = $user['rol'] ?? '';
+
     try {
-        return (int)$db->query("
-            SELECT COUNT(*) FROM notificaciones
-            WHERE estado_envio = 'Registrada'
-            AND referencia_tipo IN ('Comité','Sistema','Expediente','Accion','Plan')
-        ")->fetchColumn();
+        if ($rol === 'Aprendiz') {
+            $stmt = $db->prepare("
+                SELECT COUNT(*) FROM notificaciones
+                WHERE estado_envio = 'Registrada'
+                AND usuario_id = ?
+            ");
+            $stmt->execute([$uid]);
+        } else {
+            $stmt = $db->prepare("
+                SELECT COUNT(*) FROM notificaciones
+                WHERE estado_envio = 'Registrada'
+                AND (usuario_id = ? OR usuario_id IS NULL)
+                AND referencia_tipo IN ('Comité','Sistema','Expediente','Academico','Accion','Plan')
+            ");
+            $stmt->execute([$uid]);
+        }
+        return (int)$stmt->fetchColumn();
     } catch (Throwable $e) {
         return 0;
     }

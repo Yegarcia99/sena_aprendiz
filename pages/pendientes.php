@@ -2,24 +2,28 @@
 // pages/pendientes.php - Gestión de Pendientes / Competencias
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/expediente_schema.php';
+require_once __DIR__ . '/../includes/academico_flujo.php';
 requireLogin();
 denyIfAprendiz(); // Aprendiz no accede a pendientes
 $pageTitle = 'Pendientes de Aprendices';
 $db = getDB();
 ensureExpedienteSchema($db);
+$user = getCurrentUser();
 $msg = $err = '';
 $ff  = filtroFichas($db, 'a');  // restricción por rol
 $action     = $_GET['action'] ?? 'list';
 $id         = (int)($_GET['id'] ?? 0);
 $aprendizFilter = (int)($_GET['aprendiz_id'] ?? 0);
 
-// Instructor: solo lectura. Gestor y Coordinador/Admin: escritura.
-$puedeEscribir = !isInstructor();
+// Instructor puede reportar casos academicos; la edicion/eliminacion queda para gestor/coordinacion/admin.
+$puedeCrear = !isAprendiz();
+$puedeEditar = !isInstructor() && !isAprendiz();
+$instructorActualId = instructorIdActual($db);
 
 // ── GUARDAR ──────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrf();
-    if (!$puedeEscribir) {
+    if (!$puedeCrear) {
         $err = 'No tiene permisos para registrar o modificar pendientes.';
     } else {
     $resultadosSeleccionados = array_map('intval', $_POST['resultado_ids'] ?? []);
@@ -27,26 +31,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'aprendiz_id'           => (int)($_POST['aprendiz_id'] ?? 0),
         'competencia_id'        => (int)($_POST['competencia_id'] ?? 0),
         'resultado_id'          => count($resultadosSeleccionados) === 1 ? $resultadosSeleccionados[0] : null,
-        'instructor_id'         => (int)($_POST['instructor_id'] ?? 0),
+        'instructor_id'         => isInstructor() ? $instructorActualId : (int)($_POST['instructor_id'] ?? 0),
         'trimestre_ocurrencia'  => (int)($_POST['trimestre_ocurrencia'] ?? 0),
         'fecha_registro'        => $_POST['fecha_registro'] ?? date('Y-m-d'),
         'tipo_caso'             => $_POST['tipo_caso'] ?? 'Academico',
         'motivo'                => trim($_POST['motivo'] ?? ''),
         'debe_repetir_competencia' => isset($_POST['debe_repetir']) ? 1 : 0,
-        'estado'                => $_POST['estado'] ?? 'Pendiente',
+        'estado'                => isInstructor() ? 'Pendiente' : ($_POST['estado'] ?? 'Pendiente'),
         'observaciones'         => trim($_POST['observaciones'] ?? ''),
     ];
     if (!$data['aprendiz_id'] || !$data['competencia_id'] || !$data['instructor_id'] || !$data['trimestre_ocurrencia']) {
         $err = 'Complete todos los campos obligatorios.';
     } else {
         $editId = (int)($_POST['edit_id'] ?? 0);
-        if ($editId) {
+        if ($editId && !$puedeEditar) {
+            $err = 'El instructor solo puede crear reportes nuevos.';
+        } elseif ($editId) {
             $stmt = $db->prepare("UPDATE pendientes_aprendices SET aprendiz_id=?,competencia_id=?,resultado_id=?,instructor_id=?,trimestre_ocurrencia=?,fecha_registro=?,tipo_caso=?,motivo=?,debe_repetir_competencia=?,estado=?,observaciones=? WHERE id=?");
             $stmt->execute([...array_values($data), $editId]);
             $msg = 'Pendiente actualizado.';
         } else {
-            $stmt = $db->prepare("INSERT INTO pendientes_aprendices (aprendiz_id,competencia_id,resultado_id,instructor_id,trimestre_ocurrencia,fecha_registro,tipo_caso,motivo,debe_repetir_competencia,estado,observaciones) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
-            $stmt->execute(array_values($data));
+            $gestorStmt = $db->prepare("
+                SELECT f.gestor_id
+                FROM aprendices a
+                JOIN fichas f ON f.id = a.ficha_id
+                WHERE a.id = ?
+            ");
+            $gestorStmt->execute([$data['aprendiz_id']]);
+            $gestorId = (int)($gestorStmt->fetchColumn() ?: 0);
+
+            $stmt = $db->prepare("
+                INSERT INTO pendientes_aprendices
+                (aprendiz_id,competencia_id,resultado_id,instructor_id,gestor_id,trimestre_ocurrencia,fecha_registro,tipo_caso,motivo,debe_repetir_competencia,estado,estado_flujo,instancia_actual,observaciones)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ");
+            $stmt->execute([
+                $data['aprendiz_id'],
+                $data['competencia_id'],
+                $data['resultado_id'],
+                $data['instructor_id'],
+                $gestorId ?: null,
+                $data['trimestre_ocurrencia'],
+                $data['fecha_registro'],
+                $data['tipo_caso'],
+                $data['motivo'],
+                $data['debe_repetir_competencia'],
+                'Pendiente',
+                'Reportado',
+                0,
+                $data['observaciones'],
+            ]);
+            $nuevoPendienteId = (int)$db->lastInsertId();
+            if ($resultadosSeleccionados) {
+                $rel = $db->prepare("INSERT IGNORE INTO pendiente_resultados (pendiente_id, resultado_id) VALUES (?, ?)");
+                foreach ($resultadosSeleccionados as $rid) {
+                    $rel->execute([$nuevoPendienteId, $rid]);
+                }
+            }
+            registrarEventoAcademico($db, $nuevoPendienteId, $data['aprendiz_id'], 'Reporte academico', 'Reportado', $data['motivo']);
+            notificarReporteAcademico($db, $nuevoPendienteId);
             $msg = 'Pendiente registrado correctamente.';
         }
         $action = 'list';
@@ -57,7 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ── ELIMINAR ─────────────────────────────────────────────────
 if ($action === 'delete' && $id) {
     verifyCsrf();
-    if (!$puedeEscribir) {
+    if (!$puedeEditar) {
         $err = 'No tiene permisos para eliminar pendientes.';
         $action = 'list';
     } else {
@@ -78,7 +121,16 @@ if ($action === 'delete' && $id) {
 }
 
 // Datos auxiliares
-$aprendices   = $db->query("SELECT id, CONCAT(apellidos,', ',nombres) AS nombre, documento FROM aprendices WHERE estado='Activo' ORDER BY apellidos")->fetchAll();
+$aprSql = "SELECT a.id, CONCAT(a.apellidos,', ',a.nombres) AS nombre, a.documento FROM aprendices a WHERE a.estado='Activo'";
+$aprParams = [];
+if (!empty($ff['params'])) {
+    $aprSql .= " AND " . $ff['sql'];
+    $aprParams = $ff['params'];
+}
+$aprSql .= " ORDER BY a.apellidos";
+$aprStmt = $db->prepare($aprSql);
+$aprStmt->execute($aprParams);
+$aprendices = $aprStmt->fetchAll();
 $instructores = $db->query("SELECT id, CONCAT(nombres,' ',apellidos) AS nombre FROM instructores WHERE activo=1 ORDER BY nombres")->fetchAll();
 $competencias = $db->query("SELECT c.id, c.nombre, c.trimestre, p.nombre AS programa FROM competencias c JOIN programas p ON p.id=c.programa_id WHERE c.activa=1 ORDER BY c.nombre")->fetchAll();
 
@@ -160,7 +212,7 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
         <a href="<?= BASE_URL ?>/ajax/exportar_excel.php?tipo=pendientes" class="btn btn-excel">↓ Exportar Excel</a>
-        <?php if ($puedeEscribir): ?>
+        <?php if ($puedeCrear): ?>
         <button class="btn btn-primary" onclick="openModal('modalPendiente')">+ Registrar Pendiente</button>
         <?php endif; ?>
     </div>
@@ -246,7 +298,7 @@ require_once __DIR__ . '/../includes/header.php';
                         <a href="acciones.php?pendiente_id=<?= $p['id'] ?>" style="font-weight:700;color:var(--verde-dark)">
                             <?= $p['num_acciones'] ?> acción<?= $p['num_acciones']!==1?'es':'' ?>
                         </a>
-                        <?php if ($puedeEscribir): ?>
+                        <?php if ($puedeCrear): ?>
                         <br>
                         <a href="acciones.php?action=new&pendiente_id=<?= $p['id'] ?>" class="btn btn-sm btn-primary" style="margin-top:4px;font-size:10px">+ Agregar</a>
                         <?php endif; ?>
@@ -254,7 +306,7 @@ require_once __DIR__ . '/../includes/header.php';
                     <td>
                         <div style="display:flex;gap:4px">
                             <a href="expediente.php?aprendiz_id=<?= $p['aprendiz_id'] ?>&pendiente_id=<?= $p['id'] ?>" class="btn btn-sm btn-primary">Exp.</a>
-                            <?php if ($puedeEscribir): ?>
+                            <?php if ($puedeEditar): ?>
                             <button onclick='editPendiente(<?= json_encode($p, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT) ?>)' class="btn btn-sm btn-secondary">✎</button>
                             <button onclick='confirmDelete("pendientes.php?action=delete&id=<?= $p['id'] ?>","pendiente de <?= sanitize($p['aprendiz_nombre']) ?>")'
                                     class="btn btn-sm btn-danger">✕</button>
@@ -297,12 +349,17 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-group">
                         <label>Instructor Responsable *</label>
+                        <?php if (isInstructor()): ?>
+                        <input type="hidden" name="instructor_id" id="ep_instructor" value="<?= (int)$instructorActualId ?>">
+                        <input type="text" value="<?= sanitize(trim(($user['nombres'] ?? 'Instructor') . ' ' . ($user['apellidos'] ?? ''))) ?>" disabled>
+                        <?php else: ?>
                         <select name="instructor_id" id="ep_instructor" required>
                             <option value="">-- Seleccionar --</option>
                             <?php foreach ($instructores as $ins): ?>
                             <option value="<?=$ins['id']?>"><?= sanitize($ins['nombre']) ?></option>
                             <?php endforeach; ?>
                         </select>
+                        <?php endif; ?>
                     </div>
                     <div class="form-group">
                         <label>Competencia *</label>
@@ -342,16 +399,17 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-group">
                         <label>Estado</label>
+                        <?php if (isInstructor()): ?>
+                        <input type="text" value="Pendiente" disabled>
+                        <input type="hidden" name="estado" id="ep_estado" value="Pendiente">
+                        <?php else: ?>
                         <select name="estado" id="ep_estado">
                             <option>Pendiente</option>
                             <option>En proceso</option>
-                            <option>No aprobado</option>
-                            <option>Primera instancia</option>
-                            <option>Segunda instancia</option>
-                            <option>Listo para comite</option>
                             <option>Superado</option>
                             <option>Remitido a comité</option>
                         </select>
+                        <?php endif; ?>
                     </div>
                     <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:22px">
                         <input type="checkbox" name="debe_repetir" id="ep_repetir" value="1" style="width:auto">

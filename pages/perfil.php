@@ -9,10 +9,16 @@ $user = getCurrentUser();
 
 // ── Forzar cambio si es primera vez ──────────────────────────
 $debeCambiar = false;
-$stmt = $db->prepare("SELECT debe_cambiar_pass FROM usuarios WHERE id=?");
+$stmt = $db->prepare("SELECT debe_cambiar_pass, debe_subir_foto FROM usuarios WHERE id=?");
 $stmt->execute([$user['id']]);
 $row = $stmt->fetch();
 $debeCambiar = ($row['debe_cambiar_pass'] ?? 0) == 1;
+
+// Si aún debe subir foto, tiene prioridad sobre cambio de contraseña
+if ((int)($row['debe_subir_foto'] ?? 0) === 1) {
+    header('Location: ' . BASE_URL . '/pages/subir_foto.php');
+    exit;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrf();
@@ -57,6 +63,47 @@ require_once __DIR__ . '/../includes/header.php';
 <?php if ($msg): ?><div class="alert alert-success"><?= sanitize($msg) ?></div><?php endif; ?>
 <?php if ($err): ?><div class="alert alert-error"><?= sanitize($err) ?></div><?php endif; ?>
 
+<!-- ── Foto de perfil (solo lectura) ────────────────────────── -->
+<div class="table-card" style="padding:22px 24px;max-width:900px;margin-bottom:20px;display:flex;align-items:center;gap:20px">
+    <?php
+    $fotoStmt = $db->prepare("SELECT foto FROM usuarios WHERE id=?");
+    $fotoStmt->execute([$user['id']]);
+    $fotoRow  = $fotoStmt->fetch();
+    $fotoFile = $fotoRow['foto'] ?? null;
+    $fotoUrl  = $fotoFile
+        ? BASE_URL . '/uploads/fotos_usuarios/' . htmlspecialchars($fotoFile, ENT_QUOTES, 'UTF-8')
+        : null;
+    ?>
+    <div style="flex-shrink:0">
+        <?php if ($fotoUrl): ?>
+        <img src="<?= $fotoUrl ?>" alt="Foto de perfil"
+             style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid #39a900;display:block">
+        <?php else: ?>
+        <div style="width:80px;height:80px;border-radius:50%;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:36px;border:3px solid #ddd">
+            👤
+        </div>
+        <?php endif; ?>
+    </div>
+    <div>
+        <div style="font-weight:800;font-size:15px;font-family:'Nunito',sans-serif">
+            <?= sanitize(($user['nombres'] ?? '') . ' ' . ($user['apellidos'] ?? '')) ?>
+        </div>
+        <div style="font-size:13px;color:#666;margin-top:3px"><?= sanitize($user['username'] ?? '') ?></div>
+        <?php if (!$fotoUrl): ?>
+        <div style="margin-top:8px">
+            <a href="<?= BASE_URL ?>/pages/subir_foto.php"
+               style="background:#39a900;color:#fff;padding:6px 16px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none;display:inline-block">
+                📸 Subir foto de perfil
+            </a>
+        </div>
+        <?php else: ?>
+        <div style="font-size:11px;color:#aaa;margin-top:6px">
+            🔒 La foto de perfil no puede modificarse una vez guardada.
+        </div>
+        <?php endif; ?>
+    </div>
+</div>
+
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:900px">
 
     <!-- Info usuario -->
@@ -69,7 +116,7 @@ require_once __DIR__ . '/../includes/header.php';
             </div>
             <div>
                 <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.5px">Nombre completo</div>
-                <div><?= sanitize(($user['nombres']??'').' '.($user['apellidos']??'')) ?></div>
+                <div><?= sanitize(($user['nombres'] ?? '') . ' ' . ($user['apellidos'] ?? '')) ?></div>
             </div>
             <div>
                 <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.5px">Correo</div>

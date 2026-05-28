@@ -8,14 +8,25 @@ $pageTitle = 'Dashboard';
 $db = getDB();
 ensureExpedienteSchema($db);
 
-// Aprendiz: redirigir a su perfil/expediente propio
+// Aprendiz: solo puede ver sus propios pendientes
 if (isAprendiz()) {
     $aprendizId = getAprendizId($db);
     if ($aprendizId) {
-        header('Location: ' . BASE_URL . '/pages/expediente.php?aprendiz_id=' . $aprendizId);
-    } else {
-        header('Location: ' . BASE_URL . '/pages/perfil.php');
+        header('Location: ' . BASE_URL . '/pages/mis_pendientes.php');
+        exit;
     }
+    // Cuenta no vinculada — mostrar página de espera (no puede navegar)
+    require_once __DIR__ . '/../includes/header.php';
+    echo '<div style="max-width:480px;margin:60px auto;text-align:center;font-family:\'Nunito\',sans-serif">
+        <div style="font-size:52px;margin-bottom:16px">⏳</div>
+        <h2 style="color:#1a2e22;font-size:20px;margin:0 0 10px">Cuenta en proceso de vinculación</h2>
+        <p style="color:#666;font-size:14px;line-height:1.6;margin:0 0 20px">
+            Tu cuenta aún no ha sido vinculada.<br>
+            Comunícate con tu gestor o coordinador para activar tu acceso.
+        </p>
+        <a href="' . BASE_URL . '/logout.php" style="background:#39a900;color:#fff;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">Cerrar Sesión</a>
+    </div>';
+    require_once __DIR__ . '/../includes/footer.php';
     exit;
 }
 

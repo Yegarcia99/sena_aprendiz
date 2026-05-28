@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/expediente_schema.php';
 requireLogin();
+denyIfAprendiz(); // Aprendiz no tiene acceso a esta página
 denyIfInstructorOrAprendiz();
 
 $pageTitle = 'Asistente Disciplinario';

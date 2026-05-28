@@ -191,6 +191,27 @@ small { color: var(--muted); }
     font-style: normal;
 }
 
+.ui-icon {
+    width: 18px;
+    height: 18px;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.sidebar-toggle .ui-icon,
+#btnPwaInstall .ui-icon,
+#btnCampanita .ui-icon,
+.user-menu-icon .ui-icon {
+    width: 18px;
+    height: 18px;
+}
+
+.user-menu-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .nav-item.active .nav-icon { color: var(--verde-dark); }
 .nav-item:hover .nav-icon { color: var(--verde-dark); }
 
